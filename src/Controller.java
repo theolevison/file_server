@@ -50,7 +50,7 @@ public class Controller {
                         int filesize = Integer.parseInt(firstBuffer.substring(secondSpace + 1, buflen));
 
                         //update index
-                        if (index.putIfAbsent(fileName, "store in progress") != null){
+                        if (index.putIfAbsent(fileName, "store in progress") != null) {
                             OutputStream clientOut = client.getOutputStream();
                             clientOut.write("ERROR_FILE_ALREADY_EXISTS".getBytes(StandardCharsets.UTF_8));
                         } else {
@@ -58,7 +58,7 @@ public class Controller {
                             try {
                                 //build string of dstore ports
                                 StringBuilder outputMsg = new StringBuilder("STORE_TO ");
-                                ArrayList<DStoreObject> sublist = (ArrayList<DStoreObject>) dStores.subList(0,R);
+                                ArrayList<DStoreObject> sublist = (ArrayList<DStoreObject>) dStores.subList(0, R);
                                 for (DStoreObject dstore : sublist) {
                                     outputMsg.append(dstore.getPort()).append(" ");
                                 }
@@ -77,9 +77,9 @@ public class Controller {
 
                                         String ack = new String(buf, 0, buflen);
 
-                                        if (!ack.equals("ACK "+fileName)) {
+                                        if (!ack.equals("ACK " + fileName)) {
                                             //no ack
-                                            flag=true;
+                                            flag = true;
                                         }
                                     }
                                     //change status and update client
@@ -98,6 +98,48 @@ public class Controller {
                                 clientOut.write("ERROR_NOT_ENOUGH_DSTORES".getBytes(StandardCharsets.UTF_8));
                             }
                         }
+                    } else if (command.equals("LOAD")) {
+                        //get file name
+                        int secondSpace = firstBuffer.indexOf(" ", firstSpace + 1);
+                        String fileName = firstBuffer.substring(firstSpace + 1, secondSpace);
+                        System.out.println("fileName " + fileName);
+
+                        if (index.containsKey(fileName)) {
+                            try {
+                                DStoreObject dstore = dStores.get(0);
+
+                                try {
+                                    OutputStream clientOut = client.getOutputStream();
+                                    clientOut.write(("LOAD_FROM " + dstore.getPort() + " " + fileName).getBytes(StandardCharsets.UTF_8));
+
+                                    //check if RELOAD
+                                    //find the command
+                                    buflen = clientIn.read(buf);
+                                    firstBuffer = new String(buf, 0, buflen);
+                                    firstSpace = firstBuffer.indexOf(" ");
+                                    command = firstBuffer.substring(0, firstSpace);
+                                    System.out.println("command " + command);
+                                    //TODO: work out how input stream works and how to make this in a while loop.
+
+                                    if (command.equals("RELOAD")){
+                                        //get file name
+                                        secondSpace = firstBuffer.indexOf(" ", firstSpace + 1);
+                                        fileName = firstBuffer.substring(firstSpace + 1, secondSpace);
+                                        System.out.println("fileName " + fileName);
+                                    }
+
+                                }  catch (Exception e) {
+                                    System.out.println(e);
+                                }
+                            }catch (IndexOutOfBoundsException e){
+                                OutputStream clientOut = client.getOutputStream();
+                                clientOut.write(("ERROR_NOT_ENOUGH_DSTORES").getBytes(StandardCharsets.UTF_8));
+                            }
+                        } else {
+                            OutputStream clientOut = client.getOutputStream();
+                            clientOut.write(("ERROR_FILE_DOES_NOT_EXIST").getBytes(StandardCharsets.UTF_8));
+                        }
+
                     } else {
                         //malformed command
                         //TODO: log error and continue

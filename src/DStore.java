@@ -66,11 +66,38 @@ public class DStore {
                             client.close();
 
 
-                            controllerOut.write(("STORE_ACK "+fileName).getBytes(StandardCharsets.UTF_8));
+                            controllerOut.write(("STORE_ACK " + fileName).getBytes(StandardCharsets.UTF_8));
 
                         } catch (IOException ioException) {
                             ioException.printStackTrace();
                         }
+                    } else if (command.equals("LOAD_DATA")) {
+                        //get file name
+                        int secondSpace = firstBuffer.indexOf(" ", firstSpace + 1);
+                        String fileName = firstBuffer.substring(firstSpace + 1, secondSpace);
+                        System.out.println("fileName " + fileName);
+
+                        try {
+                            File file = new File(fileName);
+
+                            if (file.exists()){
+                                FileInputStream inf = new FileInputStream(file);
+                                OutputStream clientOut = client.getOutputStream();
+
+                                while ((buflen= inf.read(buf)) != -1){
+                                    System.out.println("*");
+                                    clientOut.write(buf,0,buflen);
+                                }
+                                inf.close();
+                                clientOut.close();
+                            }
+                            clientIn.close();
+                            client.close();
+
+                        } catch (Exception e) {
+                            System.out.println(e);
+                        }
+
                     } else {
                         //malformed command
                         //TODO: log error and continue

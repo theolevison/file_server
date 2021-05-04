@@ -1,7 +1,7 @@
-import java.io.IOException;
-import java.io.InputStream;
+import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.nio.charset.StandardCharsets;
 
 public class DStore {
 
@@ -13,20 +13,26 @@ public class DStore {
 
         //start server and keep checking for connections
         try {
-            ServerSocket ss = new ServerSocket(port);
+            ServerSocket clientSocket = new ServerSocket(port);
+            ServerSocket controllerSocket = new ServerSocket(cport);
+
+            Socket controller = controllerSocket.accept();
+            OutputStream controllerOut = controller.getOutputStream();
+            InputStream controllerIn = controller.getInputStream();
+            //TODO: check if connection to controller is successful
 
             for (; ; ) {
                 try {
                     System.out.println("waiting for connection");
-                    Socket client = ss.accept();
+                    Socket client = clientSocket.accept();
                     System.out.println("connected");
-                    InputStream in = client.getInputStream();
+                    InputStream clientIn = client.getInputStream();
 
                     byte[] buf = new byte[1000];
                     int buflen;
 
                     //find the command
-                    buflen = in.read(buf);
+                    buflen = clientIn.read(buf);
                     String firstBuffer = new String(buf, 0, buflen);
                     int firstSpace = firstBuffer.indexOf(" ");
                     String command = firstBuffer.substring(0, firstSpace);
@@ -42,6 +48,32 @@ public class DStore {
                         int filesize = Integer.parseInt(firstBuffer.substring(secondSpace + 1, buflen));
 
                         //TODO: ack
+                        try {
+                            OutputStream clientOut = client.getOutputStream();
+                            clientOut.write("ACK".getBytes(StandardCharsets.UTF_8));
+
+                            //find the file content and write it to file
+                            File outputFile = new File(fileName);
+                            FileOutputStream fileout = new FileOutputStream(outputFile);
+                            fileout.write(buf, 0, buflen);
+                            while ((buflen = clientIn.read(buf)) != -1) {
+                                System.out.print("*");
+                                fileout.write(buf, 0, buflen);
+                            }
+                            fileout.close();
+                            clientIn.close();
+                            clientOut.close();
+                            client.close();
+
+
+                            controllerOut.write(("STORE_ACK "+fileName).getBytes(StandardCharsets.UTF_8));
+
+                        } catch (IOException ioException) {
+                            ioException.printStackTrace();
+                        }
+                    } else {
+                        //malformed command
+                        //TODO: log error and continue
                     }
                 } catch (Exception e) {
                     System.out.println(e);

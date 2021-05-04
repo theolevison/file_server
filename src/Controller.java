@@ -1,3 +1,4 @@
+import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -8,6 +9,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 
 public class Controller {
+
     public static void main(String[] args) throws IOException {
         int cport = Integer.parseInt(args[0]);
         int R = Integer.parseInt(args[1]);
@@ -15,24 +17,24 @@ public class Controller {
         int rebalance_period = Integer.parseInt(args[3]);
 
         HashMap<String, String> index = new HashMap<>();
-        ArrayList<Integer> dStores = new ArrayList<>();
+        ArrayList<DStoreObject> dStores = new ArrayList<>();
 
         //start server and keep checking for connections
         try {
-            ServerSocket ss = new ServerSocket(cport);
+            ServerSocket clientSocket = new ServerSocket(cport);
 
             for (; ; ) {
                 try {
                     System.out.println("waiting for connection");
-                    Socket client = ss.accept();
+                    Socket client = clientSocket.accept();
                     System.out.println("connected");
-                    InputStream in = client.getInputStream();
+                    InputStream clientIn = client.getInputStream();
 
                     byte[] buf = new byte[1000];
                     int buflen;
 
                     //find the command
-                    buflen = in.read(buf);
+                    buflen = clientIn.read(buf);
                     String firstBuffer = new String(buf, 0, buflen);
                     int firstSpace = firstBuffer.indexOf(" ");
                     String command = firstBuffer.substring(0, firstSpace);
@@ -49,30 +51,56 @@ public class Controller {
 
                         //update index
                         if (index.putIfAbsent(fileName, "store in progress") != null){
-                            throw new Exception("Error file already exists");
-                            //TODO: file exists
+                            OutputStream clientOut = client.getOutputStream();
+                            clientOut.write("ERROR_FILE_ALREADY_EXISTS".getBytes(StandardCharsets.UTF_8));
                         } else {
                             //select R dstores
                             try {
                                 //build string of dstore ports
                                 StringBuilder outputMsg = new StringBuilder("STORE_TO ");
-                                for (int dstore : dStores.subList(0,R)) {
-                                    outputMsg.append(dstore).append(" ");
+                                ArrayList<DStoreObject> sublist = (ArrayList<DStoreObject>) dStores.subList(0,R);
+                                for (DStoreObject dstore : sublist) {
+                                    outputMsg.append(dstore.getPort()).append(" ");
                                 }
 
-                                //send the list of ports to client
+
                                 try {
-                                    OutputStream out = client.getOutputStream();
-                                    out.write(outputMsg.toString().getBytes(StandardCharsets.UTF_8));
-                                    //TODO: check acks from all the dstores
+                                    //send the list of ports to client
+                                    OutputStream clientOut = client.getOutputStream();
+                                    clientOut.write(outputMsg.toString().getBytes(StandardCharsets.UTF_8));
+
+                                    //check acks from all the dstores
+                                    boolean flag = false;
+                                    for (DStoreObject dstore : sublist) {
+                                        InputStream dstoreIn = dstore.getSocket().getInputStream();
+                                        buflen = dstoreIn.read(buf);
+
+                                        String ack = new String(buf, 0, buflen);
+
+                                        if (!ack.equals("ACK "+fileName)) {
+                                            //no ack
+                                            flag=true;
+                                        }
+                                    }
+                                    //change status and update client
+                                    if (flag) {
+                                        index.remove(fileName);
+                                    } else {
+                                        index.put(fileName, "store complete");
+                                        clientOut.write("STORE_COMPLETE".getBytes(StandardCharsets.UTF_8));
+                                    }
                                 } catch (IOException ioException) {
                                     ioException.printStackTrace();
                                 }
                             } catch (IndexOutOfBoundsException e) {
                                 System.out.println("not enough dstores, add more");
-                                //TODO: more dstores
+                                OutputStream clientOut = client.getOutputStream();
+                                clientOut.write("ERROR_NOT_ENOUGH_DSTORES".getBytes(StandardCharsets.UTF_8));
                             }
                         }
+                    } else {
+                        //malformed command
+                        //TODO: log error and continue
                     }
 
                 } catch (Exception e) {

@@ -1,3 +1,4 @@
+import javax.xml.namespace.QName;
 import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
@@ -8,7 +9,10 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
 
+
 public class Controller {
+
+
 
     public static void main(String[] args) throws IOException {
         int cport = Integer.parseInt(args[0]);
@@ -16,7 +20,7 @@ public class Controller {
         int timeout = Integer.parseInt(args[2]);
         int rebalance_period = Integer.parseInt(args[3]);
 
-        HashMap<String, String> index = new HashMap<>();
+        HashMap<String, FileObject> index = new HashMap<>();
         ArrayList<DStoreObject> dStores = new ArrayList<>();
 
         //start server and keep checking for connections
@@ -50,7 +54,7 @@ public class Controller {
                         int filesize = Integer.parseInt(firstBuffer.substring(secondSpace + 1, buflen));
 
                         //update index
-                        if (index.putIfAbsent(fileName, "store in progress") != null) {
+                        if (index.putIfAbsent(fileName, new FileObject(fileName, filesize, "store in progress")) != null) {
                             OutputStream clientOut = client.getOutputStream();
                             clientOut.write("ERROR_FILE_ALREADY_EXISTS".getBytes(StandardCharsets.UTF_8));
                         } else {
@@ -86,7 +90,7 @@ public class Controller {
                                     if (flag) {
                                         index.remove(fileName);
                                     } else {
-                                        index.put(fileName, "store complete");
+                                        index.get(fileName).setStatus("store complete");
                                         clientOut.write("STORE_COMPLETE".getBytes(StandardCharsets.UTF_8));
                                     }
                                 } catch (IOException ioException) {
@@ -110,23 +114,34 @@ public class Controller {
 
                                 try {
                                     OutputStream clientOut = client.getOutputStream();
-                                    clientOut.write(("LOAD_FROM " + dstore.getPort() + " " + fileName).getBytes(StandardCharsets.UTF_8));
+                                    clientOut.write(("LOAD_FROM " + dstore.getPort() + " " + index.get(fileName).getSize()).getBytes(StandardCharsets.UTF_8));
 
-                                    //check if RELOAD
-                                    //find the command
-                                    buflen = clientIn.read(buf);
-                                    firstBuffer = new String(buf, 0, buflen);
-                                    firstSpace = firstBuffer.indexOf(" ");
-                                    command = firstBuffer.substring(0, firstSpace);
-                                    System.out.println("command " + command);
-                                    //TODO: work out how input stream works and how to make this in a while loop.
+                                    int count = 1;
+                                    do {
+                                        //check if RELOAD
+                                        //find the command
+                                        buflen = clientIn.read(buf);
+                                        firstBuffer = new String(buf, 0, buflen);
+                                        firstSpace = firstBuffer.indexOf(" ");
+                                        command = firstBuffer.substring(0, firstSpace);
+                                        System.out.println("command " + command);
 
-                                    if (command.equals("RELOAD")){
-                                        //get file name
-                                        secondSpace = firstBuffer.indexOf(" ", firstSpace + 1);
-                                        fileName = firstBuffer.substring(firstSpace + 1, secondSpace);
-                                        System.out.println("fileName " + fileName);
-                                    }
+                                        //TODO: work out if this should go in general commands to catch?
+                                        if (command.equals("RELOAD")){
+                                            //get file name
+                                            secondSpace = firstBuffer.indexOf(" ", firstSpace + 1);
+                                            fileName = firstBuffer.substring(firstSpace + 1, secondSpace);
+                                            System.out.println("fileName " + fileName);
+
+                                            try {
+                                                dstore = dStores.get(count);
+                                            } catch (IndexOutOfBoundsException e){
+                                                clientOut.write(("ERROR_LOAD").getBytes(StandardCharsets.UTF_8));
+                                            }
+                                            count++;
+                                            clientOut.write(("LOAD_FROM " + dstore.getPort() + " " + index.get(fileName).getSize()).getBytes(StandardCharsets.UTF_8));
+                                        }
+                                    } while (command.equals("RELOAD"));
 
                                 }  catch (Exception e) {
                                     System.out.println(e);
@@ -140,6 +155,15 @@ public class Controller {
                             clientOut.write(("ERROR_FILE_DOES_NOT_EXIST").getBytes(StandardCharsets.UTF_8));
                         }
 
+                    } else if (command.equals("REMOVE")) {
+                        //get file name
+                        int secondSpace = firstBuffer.indexOf(" ", firstSpace + 1);
+                        String fileName = firstBuffer.substring(firstSpace + 1, secondSpace);
+                        System.out.println("fileName " + fileName);
+
+                        index.get(fileName).setStatus("remove in progress");
+
+                        
                     } else {
                         //malformed command
                         //TODO: log error and continue

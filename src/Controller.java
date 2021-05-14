@@ -7,25 +7,30 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.Hashtable;
 
 
 public class Controller {
 
-
+    private Hashtable<String, FileObject> index = new Hashtable<>();
+    private ArrayList<DStoreObject> dStores = new ArrayList<>(); //TODO: make this synchronized
+    int cport;
+    int R;
+    int timeout;
+    int rebalance_period;
 
     public static void main(String[] args) throws IOException {
-        int cport = Integer.parseInt(args[0]);
-        int R = Integer.parseInt(args[1]);
-        int timeout = Integer.parseInt(args[2]);
-        int rebalance_period = Integer.parseInt(args[3]);
 
-        HashMap<String, FileObject> index = new HashMap<>();
-        ArrayList<DStoreObject> dStores = new ArrayList<>();
+        Controller controller = new Controller();
+
+        controller.cport = Integer.parseInt(args[0]);
+        controller.R = Integer.parseInt(args[1]);
+        controller.timeout = Integer.parseInt(args[2]);
+        controller.rebalance_period = Integer.parseInt(args[3]);
 
         //start server and keep checking for connections
         try {
-            ServerSocket clientSocket = new ServerSocket(cport);
+            ServerSocket clientSocket = new ServerSocket(controller.cport);
 
             for (; ; ) {
                 try {
@@ -54,7 +59,7 @@ public class Controller {
                         int filesize = Integer.parseInt(firstBuffer.substring(secondSpace + 1, buflen));
 
                         //update index
-                        if (index.putIfAbsent(fileName, new FileObject(fileName, filesize, "store in progress")) != null) {
+                        if (controller.index.putIfAbsent(fileName, new FileObject(fileName, filesize, "store in progress")) != null) {
                             OutputStream clientOut = client.getOutputStream();
                             clientOut.write("ERROR_FILE_ALREADY_EXISTS".getBytes(StandardCharsets.UTF_8));
                         } else {
@@ -62,7 +67,7 @@ public class Controller {
                             try {
                                 //build string of dstore ports
                                 StringBuilder outputMsg = new StringBuilder("STORE_TO ");
-                                ArrayList<DStoreObject> sublist = (ArrayList<DStoreObject>) dStores.subList(0, R);
+                                ArrayList<DStoreObject> sublist = (ArrayList<DStoreObject>) controller.dStores.subList(0, controller.R);
                                 sublist.forEach(v -> outputMsg.append(v.getPort()).append(" "));
 
                                 try {
@@ -86,9 +91,9 @@ public class Controller {
                                     }
                                     //change status and update client
                                     if (flag) {
-                                        index.remove(fileName);
+                                        controller.index.remove(fileName);
                                     } else {
-                                        index.get(fileName).setStatus("store complete");
+                                        controller.index.get(fileName).setStatus("store complete");
                                         clientOut.write("STORE_COMPLETE".getBytes(StandardCharsets.UTF_8));
                                     }
                                     clientOut.close();
@@ -109,13 +114,13 @@ public class Controller {
                         String fileName = firstBuffer.substring(firstSpace + 1, secondSpace);
                         System.out.println("fileName " + fileName);
 
-                        if (index.containsKey(fileName)) {
+                        if (controller.index.containsKey(fileName)) {
                             try {
-                                DStoreObject dstore = dStores.get(0);
+                                DStoreObject dstore = controller.dStores.get(0);
 
                                 try {
                                     OutputStream clientOut = client.getOutputStream();
-                                    clientOut.write(("LOAD_FROM " + dstore.getPort() + " " + index.get(fileName).getSize()).getBytes(StandardCharsets.UTF_8));
+                                    clientOut.write(("LOAD_FROM " + dstore.getPort() + " " + controller.index.get(fileName).getSize()).getBytes(StandardCharsets.UTF_8));
 
                                     int count = 1;
                                     do {
@@ -135,12 +140,12 @@ public class Controller {
                                             System.out.println("fileName " + fileName);
 
                                             try {
-                                                dstore = dStores.get(count);
+                                                dstore = controller.dStores.get(count);
                                             } catch (IndexOutOfBoundsException e){
                                                 clientOut.write(("ERROR_LOAD").getBytes(StandardCharsets.UTF_8));
                                             }
                                             count++;
-                                            clientOut.write(("LOAD_FROM " + dstore.getPort() + " " + index.get(fileName).getSize()).getBytes(StandardCharsets.UTF_8));
+                                            clientOut.write(("LOAD_FROM " + dstore.getPort() + " " + controller.index.get(fileName).getSize()).getBytes(StandardCharsets.UTF_8));
                                         }
                                     } while (command.equals("RELOAD"));
                                     clientOut.close();
@@ -165,17 +170,17 @@ public class Controller {
                         String fileName = firstBuffer.substring(firstSpace + 1, secondSpace);
                         System.out.println("fileName " + fileName);
 
-                        if (index.containsKey(fileName)) {
-                            index.get(fileName).setStatus("remove in progress");
+                        if (controller.index.containsKey(fileName)) {
+                            controller.index.get(fileName).setStatus("remove in progress");
 
                             int count = 0;
 
-                            if (dStores.size() < R) {
+                            if (controller.dStores.size() < controller.R) {
                                 OutputStream clientOut = client.getOutputStream();
                                 clientOut.write(("ERROR_NOT_ENOUGH_DSTORES").getBytes(StandardCharsets.UTF_8));
                                 clientOut.close();
                             } else {
-                                for (DStoreObject dstore : dStores) {
+                                for (DStoreObject dstore : controller.dStores) {
                                     OutputStream dstoreOut = dstore.getSocket().getOutputStream();
                                     dstoreOut.write(("REMOVE " + fileName).getBytes(StandardCharsets.UTF_8));
 
@@ -193,8 +198,8 @@ public class Controller {
                                     dstoreOut.close();
                                 }
 
-                                if (count == R) {
-                                    index.get(fileName).setStatus("remove complete");
+                                if (count == controller.R) {
+                                    controller.index.get(fileName).setStatus("remove complete");
                                     OutputStream clientOut = client.getOutputStream();
                                     clientOut.write(("REMOVE_COMPLETE").getBytes(StandardCharsets.UTF_8));
                                     clientOut.close();
@@ -209,11 +214,21 @@ public class Controller {
                         }
                     } else if (command.equals("LIST")) {
                         StringBuilder outputMsg = new StringBuilder("LIST ");
-                        index.forEach((k,v) -> outputMsg.append(v.getName()).append(" "));
+                        controller.index.forEach((k,v) -> outputMsg.append(v.getName()).append(" "));
 
                         OutputStream clientOut = client.getOutputStream();
                         clientOut.write(outputMsg.toString().getBytes(StandardCharsets.UTF_8));
                         clientOut.close();
+
+                    } else if (command.equals("JOIN")) {
+                        //get port
+                        int secondSpace = firstBuffer.indexOf(" ", firstSpace + 1);
+                        String port = firstBuffer.substring(firstSpace + 1, secondSpace);
+                        System.out.println("new dstore joined on port " + port);
+
+                        controller.dStores.add(new DStoreObject(Integer.parseInt(port), new ServerSocket(controller.cport).accept()));
+
+                        controller.rebalance();
                     } else {
                         //malformed command
                         //TODO: log error and continue
@@ -225,6 +240,31 @@ public class Controller {
             }
         } catch (Exception e) {
             System.out.println(e);
+        }
+    }
+
+    private void rebalance() throws IOException {
+        for (DStoreObject dstore : dStores) {
+            OutputStream dstoreOut = dstore.getSocket().getOutputStream();
+            dstoreOut.write(("LIST").getBytes(StandardCharsets.UTF_8));
+
+            byte[] buf = new byte[1000];
+            int buflen;
+
+            //find the command
+            InputStream dstoreIn = dstore.getSocket().getInputStream();
+            buflen = dstoreIn.read(buf);
+            String firstBuffer = new String(buf, 0, buflen);
+            int firstSpace = firstBuffer.indexOf(" ");
+            String command = firstBuffer.substring(0, firstSpace);
+            System.out.println("command " + command);
+
+            if (command.equals("LIST")) {
+                //get file name
+
+                String[] listOfFilesInDstore = firstBuffer.substring(firstSpace + 1, buflen).split(" ");
+                System.out.println("files " + listOfFilesInDstore);
+            }
         }
     }
 }

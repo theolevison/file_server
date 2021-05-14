@@ -63,10 +63,7 @@ public class Controller {
                                 //build string of dstore ports
                                 StringBuilder outputMsg = new StringBuilder("STORE_TO ");
                                 ArrayList<DStoreObject> sublist = (ArrayList<DStoreObject>) dStores.subList(0, R);
-                                for (DStoreObject dstore : sublist) {
-                                    outputMsg.append(dstore.getPort()).append(" ");
-                                }
-
+                                sublist.forEach(v -> outputMsg.append(v.getPort()).append(" "));
 
                                 try {
                                     //send the list of ports to client
@@ -85,6 +82,7 @@ public class Controller {
                                             //no ack
                                             flag = true;
                                         }
+                                        dstoreIn.close();
                                     }
                                     //change status and update client
                                     if (flag) {
@@ -93,6 +91,8 @@ public class Controller {
                                         index.get(fileName).setStatus("store complete");
                                         clientOut.write("STORE_COMPLETE".getBytes(StandardCharsets.UTF_8));
                                     }
+                                    clientOut.close();
+
                                 } catch (IOException ioException) {
                                     ioException.printStackTrace();
                                 }
@@ -100,6 +100,7 @@ public class Controller {
                                 System.out.println("not enough dstores, add more");
                                 OutputStream clientOut = client.getOutputStream();
                                 clientOut.write("ERROR_NOT_ENOUGH_DSTORES".getBytes(StandardCharsets.UTF_8));
+                                clientOut.close();
                             }
                         }
                     } else if (command.equals("LOAD")) {
@@ -142,6 +143,7 @@ public class Controller {
                                             clientOut.write(("LOAD_FROM " + dstore.getPort() + " " + index.get(fileName).getSize()).getBytes(StandardCharsets.UTF_8));
                                         }
                                     } while (command.equals("RELOAD"));
+                                    clientOut.close();
 
                                 }  catch (Exception e) {
                                     System.out.println(e);
@@ -149,10 +151,12 @@ public class Controller {
                             }catch (IndexOutOfBoundsException e){
                                 OutputStream clientOut = client.getOutputStream();
                                 clientOut.write(("ERROR_NOT_ENOUGH_DSTORES").getBytes(StandardCharsets.UTF_8));
+                                clientOut.close();
                             }
                         } else {
                             OutputStream clientOut = client.getOutputStream();
                             clientOut.write(("ERROR_FILE_DOES_NOT_EXIST").getBytes(StandardCharsets.UTF_8));
+                            clientOut.close();
                         }
 
                     } else if (command.equals("REMOVE")) {
@@ -161,9 +165,55 @@ public class Controller {
                         String fileName = firstBuffer.substring(firstSpace + 1, secondSpace);
                         System.out.println("fileName " + fileName);
 
-                        index.get(fileName).setStatus("remove in progress");
+                        if (index.containsKey(fileName)) {
+                            index.get(fileName).setStatus("remove in progress");
 
-                        
+                            int count = 0;
+
+                            if (dStores.size() < R) {
+                                OutputStream clientOut = client.getOutputStream();
+                                clientOut.write(("ERROR_NOT_ENOUGH_DSTORES").getBytes(StandardCharsets.UTF_8));
+                                clientOut.close();
+                            } else {
+                                for (DStoreObject dstore : dStores) {
+                                    OutputStream dstoreOut = dstore.getSocket().getOutputStream();
+                                    dstoreOut.write(("REMOVE " + fileName).getBytes(StandardCharsets.UTF_8));
+
+                                    InputStream dstoreIn = dstore.getSocket().getInputStream();
+                                    buflen = dstoreIn.read(buf);
+
+                                    String ack = new String(buf, 0, buflen);
+
+                                    if (ack.equals("REMOVE_ACK " + fileName)) {
+                                        count++;
+                                    } else {
+                                        //TODO: log error, malformed command
+                                    }
+                                    dstoreIn.close();
+                                    dstoreOut.close();
+                                }
+
+                                if (count == R) {
+                                    index.get(fileName).setStatus("remove complete");
+                                    OutputStream clientOut = client.getOutputStream();
+                                    clientOut.write(("REMOVE_COMPLETE").getBytes(StandardCharsets.UTF_8));
+                                    clientOut.close();
+                                } else {
+                                    //TODO: log error not all dstores ack
+                                }
+                            }
+                        } else {
+                            OutputStream clientOut = client.getOutputStream();
+                            clientOut.write(("ERROR_FILE_DOES_NOT_EXIST").getBytes(StandardCharsets.UTF_8));
+                            clientOut.close();
+                        }
+                    } else if (command.equals("LIST")) {
+                        StringBuilder outputMsg = new StringBuilder("LIST ");
+                        index.forEach((k,v) -> outputMsg.append(v.getName()).append(" "));
+
+                        OutputStream clientOut = client.getOutputStream();
+                        clientOut.write(outputMsg.toString().getBytes(StandardCharsets.UTF_8));
+                        clientOut.close();
                     } else {
                         //malformed command
                         //TODO: log error and continue

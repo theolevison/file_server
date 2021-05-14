@@ -80,13 +80,13 @@ public class DStore {
                         try {
                             File file = new File(fileName);
 
-                            if (file.exists()){
+                            if (file.exists()) {
                                 FileInputStream inf = new FileInputStream(file);
                                 OutputStream clientOut = client.getOutputStream();
 
-                                while ((buflen= inf.read(buf)) != -1){
+                                while ((buflen = inf.read(buf)) != -1) {
                                     System.out.println("*");
-                                    clientOut.write(buf,0,buflen);
+                                    clientOut.write(buf, 0, buflen);
                                 }
                                 inf.close();
                                 clientOut.close();
@@ -97,6 +97,28 @@ public class DStore {
                         } catch (Exception e) {
                             System.out.println(e);
                         }
+
+                    } else if (command.equals("REMOVE")) {
+                            //get file name
+                            int secondSpace = firstBuffer.indexOf(" ", firstSpace + 1);
+                            String fileName = firstBuffer.substring(firstSpace + 1, secondSpace);
+                            System.out.println("fileName " + fileName);
+
+                            try {
+                                File file = new File(fileName);
+                                if (file.exists()) {
+                                    if (file.delete()) {
+                                        controllerOut.write(("REMOVE_ACK " + fileName).getBytes(StandardCharsets.UTF_8));
+                                    } else {
+                                        System.out.println("unable to delete file " + fileName);
+                                    }
+                                } else {
+                                    controllerOut.write(("ERROR_FILE_DOES_NOT_EXIST " + fileName).getBytes(StandardCharsets.UTF_8));
+                                }
+
+                            } catch (Exception e) {
+                                System.out.println(e);
+                            }
 
                     } else {
                         //malformed command

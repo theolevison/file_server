@@ -6,8 +6,8 @@ import java.io.OutputStream;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.Hashtable;
+import java.util.*;
+import java.util.stream.Collectors;
 
 
 public class Controller {
@@ -244,6 +244,8 @@ public class Controller {
     }
 
     private void rebalance() throws IOException {
+        HashMap<String, ArrayList<DStoreObject>> files = new HashMap<>();
+
         for (DStoreObject dstore : dStores) {
             OutputStream dstoreOut = dstore.getSocket().getOutputStream();
             dstoreOut.write(("LIST").getBytes(StandardCharsets.UTF_8));
@@ -260,11 +262,19 @@ public class Controller {
             System.out.println("command " + command);
 
             if (command.equals("LIST")) {
-                //get file name
-
                 String[] listOfFilesInDstore = firstBuffer.substring(firstSpace + 1, buflen).split(" ");
-                System.out.println("files " + listOfFilesInDstore);
+                Arrays.stream(listOfFilesInDstore).forEach(file -> {
+                    if (files.containsKey(file)){
+                        files.get(file).add(dstore);
+                    } else {
+                        files.put(file, new ArrayList<DStoreObject>(List.of(dstore)));
+                    }
+                });
             }
         }
+
+        files.size();
+        dStores.size();
+        //TODO: share files.size() between all dstores, according to R value
     }
 }

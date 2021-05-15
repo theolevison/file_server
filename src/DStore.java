@@ -2,6 +2,8 @@ import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.util.ArrayList;
 
 public class DStore {
 
@@ -119,12 +121,78 @@ public class DStore {
                             System.out.println(e);
                         }
                     } else if (command.equals("REBALANCE")) {
-                        //get file name
+                        //find dstores to send stuff to
                         int secondSpace = firstBuffer.indexOf(" ", firstSpace + 1);
-                        String numberToSend = firstBuffer.substring(firstSpace + 1, secondSpace);
+                        int numberToSend = Integer.parseInt(firstBuffer.substring(firstSpace + 1, secondSpace));
                         System.out.println("number of files to send " + numberToSend);
 
-                        //TODO: finish this bit
+                        String buffer = firstBuffer.substring(secondSpace + 1, buflen);
+                        for (int i = 0; i < numberToSend; i++) {
+
+                            firstSpace = buffer.indexOf(" ", 0);
+                            String fileToSend = buffer.substring(0, firstSpace);
+                            System.out.println("file to send " + fileToSend);
+
+                            secondSpace = buffer.indexOf(" ", secondSpace + 1);
+                            int numberOfDstores = Integer.parseInt(buffer.substring(firstSpace + 1, secondSpace));
+                            buffer = firstBuffer.substring(secondSpace + 1, buflen);
+                            for (int j = 0; j < numberOfDstores; j++) {
+                                firstSpace = buffer.indexOf(" ", 0);
+                                String dstore = buffer.substring(0, firstSpace);
+                                buffer = firstBuffer.substring(firstSpace + 1, buflen);
+                                System.out.println("dstore that needs a file on port " + dstore);
+
+                                try {
+                                    InputStream dstoreIn = new ServerSocket(Integer.parseInt(dstore)).accept().getInputStream();
+                                    File file = new File(fileToSend);
+
+                                    OutputStream dstoreOut = new ServerSocket(Integer.parseInt(dstore)).accept().getOutputStream();
+
+                                    if (file.exists()) {
+                                        dstoreOut.write(("REBALANCE_STORE " + fileToSend + file.length()).getBytes(StandardCharsets.UTF_8));
+
+                                        //find the command
+                                        buflen = clientIn.read(buf);
+                                        firstBuffer = new String(buf, 0, buflen);
+                                        firstSpace = firstBuffer.indexOf(" ");
+                                        command = firstBuffer.substring(0, firstSpace);
+                                        System.out.println("command " + command);
+
+                                        if (command.equals("ACK")) {
+                                            FileInputStream inf = new FileInputStream(file);
+
+                                            while ((buflen = inf.read(buf)) != -1) {
+                                                System.out.println("*");
+                                                dstoreOut.write(buf, 0, buflen);
+                                            }
+                                            inf.close();
+                                        } else {
+                                            //TODO: log error no ACK
+                                        }
+                                        dstoreOut.close();
+                                    }
+                                    dstoreIn.close();
+                                } catch (Exception e) {
+                                    System.out.println(e);
+                                }
+                            }
+
+                        }
+
+                        //find what to delete
+                        firstSpace = firstBuffer.indexOf(" ", 0);
+                        int numberToRemove = Integer.parseInt(firstBuffer.substring(firstSpace + 1, secondSpace));
+                        buffer = firstBuffer.substring(firstSpace + 1, buflen);
+                        for (int i = 0; i < numberToRemove; i++) {
+                            firstSpace = buffer.indexOf(" ", 0);
+                            String file = buffer.substring(0, firstSpace);
+                            buffer = firstBuffer.substring(firstSpace + 1, buflen);
+
+                            //remove file from server
+                            File file2 = new File(file);
+                            file2.delete();
+                        }
+
 
                     } else if (command.equals("REBALANCE_STORE")) {
                         //get file name

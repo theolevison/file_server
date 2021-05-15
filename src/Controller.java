@@ -321,7 +321,7 @@ public class Controller {
             filesToSend.forEach((k,v) -> {
                 if (fileLocations.get(k).contains(dstore)) {
                     outputMsg.append(k).append(v.size()).append(" ");
-                    filesToSend.get(k).forEach(file -> outputMsg.append(file).append(" "));
+                    filesToSend.get(k).forEach(dstore2 -> outputMsg.append(dstore2.getPort()).append(" "));
                 }
             });
 

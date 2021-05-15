@@ -47,7 +47,6 @@ public class DStore {
                         //get file size
                         int filesize = Integer.parseInt(firstBuffer.substring(secondSpace + 1, buflen));
 
-                        //TODO: ack
                         try {
                             OutputStream clientOut = client.getOutputStream();
                             clientOut.write("ACK".getBytes(StandardCharsets.UTF_8));
@@ -99,27 +98,63 @@ public class DStore {
                         }
 
                     } else if (command.equals("REMOVE")) {
-                            //get file name
-                            int secondSpace = firstBuffer.indexOf(" ", firstSpace + 1);
-                            String fileName = firstBuffer.substring(firstSpace + 1, secondSpace);
-                            System.out.println("fileName " + fileName);
+                        //get file name
+                        int secondSpace = firstBuffer.indexOf(" ", firstSpace + 1);
+                        String fileName = firstBuffer.substring(firstSpace + 1, secondSpace);
+                        System.out.println("fileName " + fileName);
 
-                            try {
-                                File file = new File(fileName);
-                                if (file.exists()) {
-                                    if (file.delete()) {
-                                        controllerOut.write(("REMOVE_ACK " + fileName).getBytes(StandardCharsets.UTF_8));
-                                    } else {
-                                        System.out.println("unable to delete file " + fileName);
-                                    }
+                        try {
+                            File file = new File(fileName);
+                            if (file.exists()) {
+                                if (file.delete()) {
+                                    controllerOut.write(("REMOVE_ACK " + fileName).getBytes(StandardCharsets.UTF_8));
                                 } else {
-                                    controllerOut.write(("ERROR_FILE_DOES_NOT_EXIST " + fileName).getBytes(StandardCharsets.UTF_8));
+                                    System.out.println("unable to delete file " + fileName);
                                 }
-
-                            } catch (Exception e) {
-                                System.out.println(e);
+                            } else {
+                                controllerOut.write(("ERROR_FILE_DOES_NOT_EXIST " + fileName).getBytes(StandardCharsets.UTF_8));
                             }
 
+                        } catch (Exception e) {
+                            System.out.println(e);
+                        }
+                    } else if (command.equals("REBALANCE")) {
+                        //get file name
+                        int secondSpace = firstBuffer.indexOf(" ", firstSpace + 1);
+                        String numberToSend = firstBuffer.substring(firstSpace + 1, secondSpace);
+                        System.out.println("number of files to send " + numberToSend);
+
+                        //TODO: finish this bit
+
+                    } else if (command.equals("REBALANCE_STORE")) {
+                        //get file name
+                        int secondSpace = firstBuffer.indexOf(" ", firstSpace + 1);
+                        String fileName = firstBuffer.substring(firstSpace + 1, secondSpace);
+                        System.out.println("fileName " + fileName);
+
+                        //get file size
+                        int filesize = Integer.parseInt(firstBuffer.substring(secondSpace + 1, buflen));
+
+                        //here the client is actually a dstore
+                        try {
+                            OutputStream clientOut = client.getOutputStream();
+                            clientOut.write("ACK".getBytes(StandardCharsets.UTF_8));
+
+                            //find the file content and write it to file
+                            File outputFile = new File(fileName);
+                            FileOutputStream fileout = new FileOutputStream(outputFile);
+                            fileout.write(buf, 0, buflen);
+                            while ((buflen = clientIn.read(buf)) != -1) {
+                                System.out.print("*");
+                                fileout.write(buf, 0, buflen);
+                            }
+                            fileout.close();
+                            clientIn.close();
+                            clientOut.close();
+                            client.close();
+                        } catch (IOException ioException) {
+                            ioException.printStackTrace();
+                        }
                     } else {
                         //malformed command
                         //TODO: log error and continue

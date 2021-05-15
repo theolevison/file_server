@@ -248,7 +248,7 @@ public class Controller {
         HashMap<String, ArrayList<DStoreObject>> fileLocations = new HashMap<>();
         byte[] buf = new byte[1000];
         int buflen;
-        
+
         //find where files are stored
         for (DStoreObject dstore : dStores) {
             OutputStream dstoreOut = dstore.getSocket().getOutputStream();

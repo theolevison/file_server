@@ -1,4 +1,5 @@
 import java.io.*;
+import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
@@ -12,22 +13,28 @@ public class DStore {
         int cport = Integer.parseInt(args[1]);
         int timeout = Integer.parseInt(args[2]);
         String file_folder= args[3];
+        File store = new File(file_folder);
+        if (!store.exists()){
+            store.mkdir();
+        }
 
         //start server and keep checking for connections
         try {
             ServerSocket clientSocket = new ServerSocket(port);
-            ServerSocket controllerSocket = new ServerSocket(cport);
 
-            Socket controller = controllerSocket.accept();
+            Socket controller = new Socket(InetAddress.getLocalHost() ,cport);
             OutputStream controllerOut = controller.getOutputStream();
+            System.out.println("dstore: connecting to controller");
+            controllerOut.write(("JOIN "+port).getBytes(StandardCharsets.UTF_8));
+
             InputStream controllerIn = controller.getInputStream();
             //TODO: check if connection to controller is successful
 
             for (; ; ) {
                 try {
-                    System.out.println("waiting for connection");
+                    System.out.println("dstore: waiting for connection");
                     Socket client = clientSocket.accept();
-                    System.out.println("connected");
+                    System.out.println("dstore: connected");
                     InputStream clientIn = client.getInputStream();
 
                     byte[] buf = new byte[1000];

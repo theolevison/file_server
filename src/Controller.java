@@ -8,7 +8,8 @@ import java.util.*;
 
 public class Controller {
 
-    private Hashtable<String, FileObject> index = new Hashtable<>();
+    private Hashtable<String, FileObject> indexNonSynced = new Hashtable<>();
+    Map<String, FileObject> index = Collections.synchronizedMap(indexNonSynced);
     private ArrayList<DStoreObject> dStores = new ArrayList<>(); //TODO: make this synchronized
     int cport;
     int R;
@@ -60,7 +61,7 @@ public class Controller {
                                             firstSpace = buflen - 1;
                                         }
                                         String command = firstBuffer.substring(0, firstSpace);
-                                        System.out.println("command " + command + "wooo");
+                                        System.out.println("command " + command);
 
                                         if (command.equals("STORE")) {
                                             //get file name
@@ -69,7 +70,7 @@ public class Controller {
                                             System.out.println("fileName " + fileName);
 
                                             //get file size
-                                            int filesize = Integer.parseInt(firstBuffer.substring(secondSpace + 1, buflen));
+                                            int filesize = Integer.parseInt(firstBuffer.substring(secondSpace + 1, buflen-1));
 
                                             //update index
                                             if (controller.index.putIfAbsent(fileName, new FileObject(fileName, filesize, "store in progress")) != null) {
@@ -81,12 +82,14 @@ public class Controller {
                                                 try {
                                                     //build string of dstore ports
                                                     StringBuilder outputMsg = new StringBuilder("STORE_TO ");
-                                                    ArrayList<DStoreObject> sublist = (ArrayList<DStoreObject>) controller.dStores.subList(0, controller.R);
+                                                    List<DStoreObject> sublist = controller.dStores.subList(0, controller.R);
                                                     sublist.forEach(v -> outputMsg.append(v.getPort()).append(" "));
 
                                                     try {
+                                                        System.out.println("send ports to client");
                                                         //send the list of ports to client
                                                         clientOut.println(outputMsg);
+                                                        clientOut.flush();
                                                         //clientOut.write(outputMsg.toString().getBytes(StandardCharsets.UTF_8));
 
                                                         //check acks from all the dstores
@@ -95,19 +98,22 @@ public class Controller {
                                                             InputStream dstoreIn = dstore.getSocket().getInputStream();
                                                             buflen = dstoreIn.read(buf);
 
-                                                            String ack = new String(buf, 0, buflen);
+                                                            String ack = new String(buf, 0, buflen-1);
 
                                                             if (!ack.equals("ACK " + fileName)) {
                                                                 //no ack
+                                                                System.out.println("no ack");
                                                                 flag = true;
                                                             }
-                                                            dstoreIn.close();
+                                                            //dstoreIn.close();
                                                         }
                                                         //change status and update client
+                                                        System.out.println("test1");
                                                         if (flag) {
                                                             controller.index.remove(fileName);
                                                         } else {
                                                             controller.index.get(fileName).setStatus("store complete");
+                                                            System.out.println("store complete");
                                                             clientOut.println("STORE_COMPLETE");
                                                             clientOut.flush();
                                                             //clientOut.write("STORE_COMPLETE".getBytes(StandardCharsets.UTF_8));
@@ -119,6 +125,7 @@ public class Controller {
                                                 } catch (IndexOutOfBoundsException e) {
                                                     System.out.println("not enough dstores, add more");
                                                     clientOut.println("ERROR_NOT_ENOUGH_DSTORES");
+                                                    controller.index.remove(fileName);
                                                     //clientOut.write("ERROR_NOT_ENOUGH_DSTORES".getBytes(StandardCharsets.UTF_8));
                                                     clientOut.flush();
                                                 }
@@ -143,7 +150,7 @@ public class Controller {
                                                             //check if RELOAD
                                                             //find the command
                                                             buflen = clientIn.read(buf);
-                                                            firstBuffer = new String(buf, 0, buflen);
+                                                            firstBuffer = new String(buf, 0, buflen-1);
                                                             firstSpace = firstBuffer.indexOf(" ");
                                                             command = firstBuffer.substring(0, firstSpace);
                                                             System.out.println("command " + command);
@@ -207,7 +214,7 @@ public class Controller {
                                                         InputStream dstoreIn = dstore.getSocket().getInputStream();
                                                         buflen = dstoreIn.read(buf);
 
-                                                        String ack = new String(buf, 0, buflen);
+                                                        String ack = new String(buf, 0, buflen-1);
 
                                                         if (ack.equals("REMOVE_ACK " + fileName)) {
                                                             count++;
@@ -288,13 +295,13 @@ public class Controller {
             //find the command
             InputStream dstoreIn = dstore.getSocket().getInputStream();
             buflen = dstoreIn.read(buf);
-            String firstBuffer = new String(buf, 0, buflen);
+            String firstBuffer = new String(buf, 0, buflen-1);
             int firstSpace = firstBuffer.indexOf(" ");
             String command = firstBuffer.substring(0, firstSpace);
             System.out.println("command " + command);
 
             if (command.equals("LIST")) {
-                String[] listOfFilesInDstore = firstBuffer.substring(firstSpace + 1, buflen).split(" ");
+                String[] listOfFilesInDstore = firstBuffer.substring(firstSpace + 1, buflen-1).split(" ");
                 Arrays.stream(listOfFilesInDstore).forEach(file -> {
                     if (fileLocations.containsKey(file)){
                         fileLocations.get(file).add(dstore);
@@ -367,7 +374,7 @@ public class Controller {
             //find the command
             InputStream dstoreIn = dstore.getSocket().getInputStream();
             buflen = dstoreIn.read(buf);
-            String firstBuffer = new String(buf, 0, buflen);
+            String firstBuffer = new String(buf, 0, buflen-1);
             int firstSpace = firstBuffer.indexOf(" ");
             String command = firstBuffer.substring(0, firstSpace);
             System.out.println("command " + command);

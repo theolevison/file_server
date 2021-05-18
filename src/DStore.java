@@ -20,12 +20,16 @@ public class DStore {
 
         //start server and keep checking for connections
         try {
+            System.out.println("connecting to controller");
             ServerSocket clientSocket = new ServerSocket(port);
             Socket controller = new Socket(InetAddress.getLocalHost() ,cport);
-            PrintWriter controllerOut = new PrintWriter(controller.getOutputStream());
-            System.out.println("dstore: connecting to controller");
-            controller.getOutputStream().write(("JOIN "+port).getBytes(StandardCharsets.UTF_8));
+            OutputStream controllerOutputStream = controller.getOutputStream();
+            PrintWriter controllerOut = new PrintWriter(controllerOutputStream);
+            //controller.getOutputStream().write(("JOIN "+port).getBytes(StandardCharsets.UTF_8));
             controllerOut.println("JOIN "+port);
+            controllerOut.println("JOIN "+port);
+            controllerOut.println("JOIN "+port);
+            System.out.println("connection successful");
 
             InputStream controllerIn = controller.getInputStream();
             //TODO: check if connection to controller is successful
@@ -76,17 +80,23 @@ public class DStore {
 
 
                                                 //find the file content and write it to file
-                                                File outputFile = new File(fileName);
-                                                FileOutputStream fileout = new FileOutputStream(outputFile);
-                                                fileout.write(clientInputStream.readNBytes(filesize));
+                                                //File outputFile = new File(fileName);
+                                                System.out.println("test1 " + filesize);
+                                                //FileWriter out2 = new FileWriter(outputFile);
+                                                FileOutputStream fileout = new FileOutputStream(file_folder + "/" + fileName);
+                                                System.out.println("test2");
+                                                BufferedOutputStream out = new BufferedOutputStream(fileout);
+                                                //clientInputStream.readNBytes(buf,0,filesize);
+                                                byte [] buf2 = new byte[filesize];
+                                                buflen = clientInputStream.readNBytes(buf2, 0, buf2.length-1);
+                                                System.out.println("test3 " + buflen);
+                                                fileout.write(buf2);
+                                                //out2.write(buf);
 
-                                                //clientInputStream.transferTo(fileout);
-//                                                while ((buflen = clientInputStream.read(buf)) != -1) {
-//                                                    System.out.print("*");
-//                                                    fileout.write(buf, 0, buflen);
-//                                                }
-                                                System.out.println("test1");
+                                                System.out.println("test3");
+                                                out.close();
                                                 fileout.close();
+                                                clientInputStream.close();
 
                                                 controllerOut.println("STORE_ACK " + fileName);
 

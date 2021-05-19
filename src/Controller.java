@@ -31,7 +31,7 @@ public class Controller {
             ServerSocket clientSocket = new ServerSocket(controller.cport);
 
             for (int i = 0; i < controller.R; i++) {
-                System.out.println("waiting for connection from " + i + " dstore/s");
+                System.out.println("waiting for connection from " + (controller.R-i) + " dstore/s");
                 Socket client = clientSocket.accept();
                 System.out.println("dstore connected");
 

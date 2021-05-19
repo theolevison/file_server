@@ -5,6 +5,7 @@ import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.ArrayList;
+import java.util.Arrays;
 
 public class DStore {
 
@@ -61,7 +62,7 @@ public class DStore {
 
                                         //find the command
                                         String[] commands = input.split(" ");
-                                        System.out.println("command " + commands);
+                                        System.out.println("command " + Arrays.toString(commands));
 
                                         if (commands[0].equals("STORE")) {
                                             //get file name
@@ -73,31 +74,15 @@ public class DStore {
 
                                             try {
                                                 clientOut.println("ACK");
+                                                clientOut.flush();
                                                 System.out.println("sent ack");
-                                                //clientInputStream = client.getInputStream();
 
-
-                                                //find the file content and write it to file
-                                                //File outputFile = new File(fileName);
-                                                System.out.println("filesize " + filesize);
-                                                //FileWriter out2 = new FileWriter(outputFile);
                                                 FileOutputStream fileout = new FileOutputStream(file_folder + "/" + fileName);
-                                                System.out.println("test2");
-                                                BufferedOutputStream out = new BufferedOutputStream(fileout);
-                                                //clientInputStream.readNBytes(buf,0,filesize);
-                                                byte [] buf2 = new byte[filesize];
-                                                buflen = clientInputStream.readNBytes(buf2, 0, buf2.length-1);
-                                                System.out.println("test3 " + buflen);
-                                                fileout.write(buf2);
-                                                //out2.write(buf);
-
-                                                System.out.println("test3");
-                                                out.close();
+                                                fileout.write(clientInputStream.readNBytes(filesize));
                                                 fileout.close();
-                                                clientInputStream.close();
 
                                                 controllerOut.println("STORE_ACK " + fileName);
-
+                                                controllerOut.flush();
                                             } catch (IOException ioException) {
                                                 ioException.printStackTrace();
                                             }

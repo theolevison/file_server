@@ -22,9 +22,21 @@ public class DStoreObject {
 
     private int port;
     private Socket socket;
+    private InputStream inputStream;
+    private OutputStream outputStream;
 
-    public DStoreObject(int port, Socket socket) {
+    public DStoreObject(int port, Socket socket, InputStream inputStream, OutputStream outputStream) {
         this.port = port;
         this.socket = socket;
+        this.inputStream = inputStream;
+        this.outputStream = outputStream;
+    }
+
+    public InputStream getInputStream() {
+        return inputStream;
+    }
+
+    public OutputStream getOutputStream() {
+        return outputStream;
     }
 }

@@ -27,14 +27,125 @@ public class DStore {
             OutputStream controllerOutputStream = controller.getOutputStream();
             PrintWriter controllerOut = new PrintWriter(controllerOutputStream);
             //controller.getOutputStream().write(("JOIN "+port).getBytes(StandardCharsets.UTF_8));
-            controllerOut.println("JOIN "+port);
+            controllerOut.println(Protocol.JOIN_TOKEN + " " +port);
             controllerOut.flush();
 
             System.out.println("connection successful");
 
-            InputStream controllerIn = controller.getInputStream();
-            //TODO: check if connection to controller is successful
+            InputStream controllerInputStream = controller.getInputStream();
+            BufferedReader controllerIn = new BufferedReader(new InputStreamReader(controllerInputStream));
 
+            //make a thread to handle instructions from the controller
+            new Thread(new Runnable(){
+                public void run() {
+                    try {
+                        String input;
+
+                        while ((input = controllerIn.readLine()) != null) {
+                            //find the command
+                            String[] commands = input.split(" ");
+                            System.out.println("command " + Arrays.toString(commands));
+
+                            if (commands[0].equals(Protocol.REMOVE_TOKEN)) {
+                                //get file name
+                                String fileName = commands[1];
+                                System.out.println("fileName " + fileName);
+
+                                try {
+                                    File file = new File(file_folder + "/" + fileName);
+                                    if (file.exists()) {
+                                        if (file.delete()) {
+                                            controllerOut.println(Protocol.REMOVE_ACK_TOKEN + " " + fileName);
+                                            controllerOut.flush();
+                                        } else {
+                                            System.out.println("unable to delete file " + fileName);
+                                        }
+                                    } else {
+                                        controllerOut.println(Protocol.ERROR_FILE_DOES_NOT_EXIST_TOKEN + " " + fileName);
+                                        controllerOut.flush();
+                                    }
+
+                                } catch (Exception e) {
+                                    System.out.println(e);
+                                }
+                            } else if (commands[0].equals("REBALANCE")) {
+//                                //find dstores to send stuff to
+//                                int numberToSend = Integer.parseInt(commands[2]);
+//                                System.out.println("number of files to send " + numberToSend);
+//
+//                                String buffer = input.substring(secondSpace + 1);
+//                                for (int i = 0; i < numberToSend; i++) {
+//
+//                                    firstSpace = buffer.indexOf(" ");
+//                                    String fileToSend = buffer.substring(0, firstSpace);
+//                                    System.out.println("file to send " + fileToSend);
+//
+//                                    secondSpace = buffer.indexOf(" ", secondSpace + 1);
+//                                    int numberOfDstores = Integer.parseInt(buffer.substring(firstSpace + 1, secondSpace));
+//                                    buffer = input.substring(secondSpace + 1);
+//                                    for (int j = 0; j < numberOfDstores; j++) {
+//                                        firstSpace = buffer.indexOf(" ", 0);
+//                                        String dstore = buffer.substring(0, firstSpace);
+//                                        buffer = input.substring(firstSpace + 1);
+//                                        System.out.println("dstore that needs a file on port " + dstore);
+//
+//                                        try {
+//                                            InputStream dstoreIn = new ServerSocket(Integer.parseInt(dstore)).accept().getInputStream();
+//                                            File file = new File(fileToSend);
+//
+//                                            OutputStream dstoreOut = new ServerSocket(Integer.parseInt(dstore)).accept().getOutputStream();
+//
+//                                            if (file.exists()) {
+//                                                dstoreOut.write(("REBALANCE_STORE " + fileToSend + file.length()).getBytes(StandardCharsets.UTF_8));
+//
+//                                                //find the command
+//                                                buflen = clientInputStream.read(buf);
+//                                                input = new String(buf, 0, buflen);
+//                                                firstSpace = input.indexOf(" ");
+//                                                commands[0] = input.substring(0, firstSpace);
+//                                                System.out.println("command " + commands[0]);
+//
+//                                                if (commands[0].equals("ACK")) {
+//                                                    FileInputStream inf = new FileInputStream(file);
+//
+//                                                    while ((buflen = inf.read(buf)) != -1) {
+//                                                        System.out.println("*");
+//                                                        dstoreOut.write(buf, 0, buflen);
+//                                                    }
+//                                                    inf.close();
+//                                                } else {
+//                                                    //TODO: log error no ACK
+//                                                }
+//                                                dstoreOut.close();
+//                                            }
+//                                            dstoreIn.close();
+//                                        } catch (Exception e) {
+//                                            System.out.println(e);
+//                                        }
+//                                    }
+//
+//                                }
+//
+//                                //find what to delete
+//                                firstSpace = input.indexOf(" ", 0);
+//                                int numberToRemove = Integer.parseInt(input.substring(firstSpace + 1, secondSpace));
+//                                buffer = input.substring(firstSpace + 1);
+//                                for (int i = 0; i < numberToRemove; i++) {
+//                                    firstSpace = buffer.indexOf(" ", 0);
+//                                    String file = buffer.substring(0, firstSpace);
+//                                    buffer = input.substring(firstSpace + 1);
+//
+//                                    //remove file from server
+//                                    File file2 = new File(file);
+//                                    file2.delete();
+                            }
+                        }
+                    } catch (IOException e){
+
+                    }
+                }
+            }).start();
+//
             for (; ; ) {
                 try {
                     System.out.println("waiting for connection");
@@ -64,7 +175,7 @@ public class DStore {
                                         String[] commands = input.split(" ");
                                         System.out.println("command " + Arrays.toString(commands));
 
-                                        if (commands[0].equals("STORE")) {
+                                        if (commands[0].equals(Protocol.STORE_TOKEN)) {
                                             //get file name
                                             String fileName = commands[1];
                                             System.out.println("fileName " + fileName);
@@ -73,7 +184,7 @@ public class DStore {
                                             int filesize = Integer.parseInt(commands[2]);
 
                                             try {
-                                                clientOut.println("ACK");
+                                                clientOut.println(Protocol.ACK_TOKEN);
                                                 clientOut.flush();
                                                 System.out.println("sent ack");
 
@@ -81,126 +192,30 @@ public class DStore {
                                                 fileout.write(clientInputStream.readNBytes(filesize));
                                                 fileout.close();
 
-                                                controllerOut.println("STORE_ACK " + fileName);
+                                                controllerOut.println(Protocol.STORE_ACK_TOKEN + " " + fileName);
                                                 controllerOut.flush();
                                             } catch (IOException ioException) {
                                                 ioException.printStackTrace();
                                             }
-                                        } else if (commands[0].equals("LOAD_DATA")) {
+                                        } else if (commands[0].equals(Protocol.LOAD_DATA_TOKEN)) {
                                             //get file name
                                             String fileName = commands[1];
                                             System.out.println("fileName " + fileName);
 
                                             try {
-                                                File file = new File(fileName);
+                                                File file = new File(file_folder + "/" + fileName);
 
                                                 if (file.exists()) {
                                                     FileInputStream inf = new FileInputStream(file);
 
-                                                    while ((buflen = inf.read(buf)) != -1) {
-                                                        System.out.println("*");
-                                                        clientOutputStream.write(buf, 0, buflen);
-                                                    }
+                                                    clientOutputStream.write(inf.readAllBytes());
+                                                    clientOutputStream.flush();
                                                     inf.close();
                                                 }
 
                                             } catch (Exception e) {
                                                 System.out.println(e);
                                             }
-
-                                        } else if (commands[0].equals("REMOVE")) {
-                                            //get file name
-                                            String fileName = commands[1];
-                                            System.out.println("fileName " + fileName);
-
-                                            try {
-                                                File file = new File(fileName);
-                                                if (file.exists()) {
-                                                    if (file.delete()) {
-                                                        controllerOut.println("REMOVE_ACK " + fileName);
-                                                    } else {
-                                                        System.out.println("unable to delete file " + fileName);
-                                                    }
-                                                } else {
-                                                    controllerOut.println("ERROR_FILE_DOES_NOT_EXIST " + fileName);
-                                                }
-
-                                            } catch (Exception e) {
-                                                System.out.println(e);
-                                            }
-//                                        } else if (commands[0].equals("REBALANCE")) {
-//                                            //find dstores to send stuff to
-//                                            int numberToSend = Integer.parseInt(commands[2]);
-//                                            System.out.println("number of files to send " + numberToSend);
-//
-//                                            String buffer = input.substring(secondSpace + 1);
-//                                            for (int i = 0; i < numberToSend; i++) {
-//
-//                                                firstSpace = buffer.indexOf(" ");
-//                                                String fileToSend = buffer.substring(0, firstSpace);
-//                                                System.out.println("file to send " + fileToSend);
-//
-//                                                secondSpace = buffer.indexOf(" ", secondSpace + 1);
-//                                                int numberOfDstores = Integer.parseInt(buffer.substring(firstSpace + 1, secondSpace));
-//                                                buffer = input.substring(secondSpace + 1);
-//                                                for (int j = 0; j < numberOfDstores; j++) {
-//                                                    firstSpace = buffer.indexOf(" ", 0);
-//                                                    String dstore = buffer.substring(0, firstSpace);
-//                                                    buffer = input.substring(firstSpace + 1);
-//                                                    System.out.println("dstore that needs a file on port " + dstore);
-//
-//                                                    try {
-//                                                        InputStream dstoreIn = new ServerSocket(Integer.parseInt(dstore)).accept().getInputStream();
-//                                                        File file = new File(fileToSend);
-//
-//                                                        OutputStream dstoreOut = new ServerSocket(Integer.parseInt(dstore)).accept().getOutputStream();
-//
-//                                                        if (file.exists()) {
-//                                                            dstoreOut.write(("REBALANCE_STORE " + fileToSend + file.length()).getBytes(StandardCharsets.UTF_8));
-//
-//                                                            //find the command
-//                                                            buflen = clientInputStream.read(buf);
-//                                                            input = new String(buf, 0, buflen);
-//                                                            firstSpace = input.indexOf(" ");
-//                                                            commands[0] = input.substring(0, firstSpace);
-//                                                            System.out.println("command " + commands[0]);
-//
-//                                                            if (commands[0].equals("ACK")) {
-//                                                                FileInputStream inf = new FileInputStream(file);
-//
-//                                                                while ((buflen = inf.read(buf)) != -1) {
-//                                                                    System.out.println("*");
-//                                                                    dstoreOut.write(buf, 0, buflen);
-//                                                                }
-//                                                                inf.close();
-//                                                            } else {
-//                                                                //TODO: log error no ACK
-//                                                            }
-//                                                            dstoreOut.close();
-//                                                        }
-//                                                        dstoreIn.close();
-//                                                    } catch (Exception e) {
-//                                                        System.out.println(e);
-//                                                    }
-//                                                }
-//
-//                                            }
-//
-//                                            //find what to delete
-//                                            firstSpace = input.indexOf(" ", 0);
-//                                            int numberToRemove = Integer.parseInt(input.substring(firstSpace + 1, secondSpace));
-//                                            buffer = input.substring(firstSpace + 1);
-//                                            for (int i = 0; i < numberToRemove; i++) {
-//                                                firstSpace = buffer.indexOf(" ", 0);
-//                                                String file = buffer.substring(0, firstSpace);
-//                                                buffer = input.substring(firstSpace + 1);
-//
-//                                                //remove file from server
-//                                                File file2 = new File(file);
-//                                                file2.delete();
-//                                            }
-
-
                                         } else if (commands[0].equals("REBALANCE_STORE")) {
                                             //get file name
                                             String fileName = commands[1];
@@ -230,7 +245,9 @@ public class DStore {
                                             //malformed command
                                             //TODO: log error and continue
                                         }
+                                        System.out.println("waiting for more input");
                                     }
+                                    System.out.println("thread ended");
                                 } catch (IOException e) {
                                     e.printStackTrace();
                                 }

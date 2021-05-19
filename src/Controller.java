@@ -47,7 +47,7 @@ public class Controller {
                     String port = commands[1];
                     System.out.println("new dstore joined on port " + port);
 
-                    controller.dStores.add(new DStoreObject(Integer.parseInt(port), client));
+                    controller.dStores.add(new DStoreObject(Integer.parseInt(port), client, clientInputStream, client.getOutputStream()));
                     System.out.println("dstore joined successfully");
                 }
             }
@@ -57,8 +57,6 @@ public class Controller {
                 try {
                     System.out.println("waiting for connection");
                     Socket client = clientSocket.accept();
-                    //TODO: wait for R dstores to join the system
-
 
                     new Thread(new Runnable(){
                         public void run() {
@@ -69,7 +67,6 @@ public class Controller {
                                 BufferedReader clientIn = new BufferedReader(new InputStreamReader(clientInputStream));
                                 OutputStream clientOutputStream = client.getOutputStream();
                                 PrintWriter clientOut = new PrintWriter(clientOutputStream);
-
 
                                 String input;
 
@@ -97,24 +94,23 @@ public class Controller {
         System.out.println("command " + Arrays.toString(commands));
 
         if (commands[0].equals(Protocol.STORE_TOKEN)) {
-            //get file name
             String fileName = commands[1];
-            System.out.println("fileName " + fileName);
-
-            //get file size
             int filesize = Integer.parseInt(commands[2]);
-            System.out.println("fileSize " + filesize);
 
             //update index
             if (index.putIfAbsent(fileName, new FileObject(fileName, filesize, "store in progress")) != null) {
                 clientOut.println(Protocol.ERROR_FILE_ALREADY_EXISTS_TOKEN);
+                System.out.println("file already exists");
                 clientOut.flush();
-                //clientOut.write("ERROR_FILE_ALREADY_EXISTS".getBytes(StandardCharsets.UTF_8));
             } else {
                 //select R dstores
-                try {
-                    //build string of dstore ports
-                    StringBuilder outputMsg = new StringBuilder(Protocol.STORE_TO_TOKEN+" ");
+                //build string of dstore ports
+                if (dStores.size() < R) {
+                    clientOut.println(Protocol.ERROR_NOT_ENOUGH_DSTORES_TOKEN);
+                    index.remove(fileName);
+                    clientOut.flush();
+                } else {
+                    StringBuilder outputMsg = new StringBuilder(Protocol.STORE_TO_TOKEN + " ");
                     List<DStoreObject> sublist = dStores.subList(0, R);
                     sublist.forEach(v -> outputMsg.append(v.getPort()).append(" "));
 
@@ -143,6 +139,7 @@ public class Controller {
                         //change status and update client
                         if (flag) {
                             index.remove(fileName);
+                            System.out.println("store failed, removing " + fileName);
                         } else {
                             index.get(fileName).setStatus("store complete");
                             System.out.println("store complete");
@@ -154,12 +151,6 @@ public class Controller {
                     } catch (IOException ioException) {
                         ioException.printStackTrace();
                     }
-                } catch (IndexOutOfBoundsException e) {
-                    System.out.println("not enough dstores, add more");
-                    clientOut.println(Protocol.ERROR_NOT_ENOUGH_DSTORES_TOKEN);
-                    index.remove(fileName);
-                    //clientOut.write("ERROR_NOT_ENOUGH_DSTORES".getBytes(StandardCharsets.UTF_8));
-                    clientOut.flush();
                 }
             }
         } else if (commands[0].equals(Protocol.LOAD_TOKEN)) {
@@ -218,7 +209,6 @@ public class Controller {
 
             if (index.containsKey(fileName)) {
                 index.get(fileName).setStatus("remove in progress");
-
                 int count = 0;
 
                 if (dStores.size() < R) {
@@ -226,21 +216,21 @@ public class Controller {
                     clientOut.flush();
                 } else {
                     for (DStoreObject dstore : dStores) {
-                        OutputStream dstoreOut = dstore.getSocket().getOutputStream();
-                        dstoreOut.write((Protocol.REMOVE_TOKEN + " " + fileName).getBytes(StandardCharsets.UTF_8));
+                        PrintWriter dstoreOut = new PrintWriter(dstore.getOutputStream());
+                        dstoreOut.println(Protocol.REMOVE_TOKEN + " " + fileName);
+                        dstoreOut.flush();
 
-                        InputStream dstoreIn = dstore.getSocket().getInputStream();
-                        buflen = dstoreIn.read(buf);
+                        System.out.println("send remove to dstore " + dstore.getPort());
 
-                        String ack = new String(buf, 0, buflen - 1);
+                        BufferedReader dstoreIn = new BufferedReader(new InputStreamReader(dstore.getInputStream()));
+                        String input = dstoreIn.readLine();
 
-                        if (ack.equals(Protocol.REMOVE_ACK_TOKEN + " " + fileName)) {
+                        if (input.equals(Protocol.REMOVE_ACK_TOKEN + " " + fileName)) {
                             count++;
                         } else {
                             //TODO: log error, malformed command
+                            System.out.println("remove error");
                         }
-                        dstoreIn.close();
-                        dstoreOut.close();
                     }
 
                     if (count == R) {
@@ -272,7 +262,7 @@ public class Controller {
             String port = commands[1];
             System.out.println("new dstore joined on port " + port);
 
-            dStores.add(new DStoreObject(Integer.parseInt(port), client));
+            dStores.add(new DStoreObject(Integer.parseInt(port), client, clientInputStream, clientOutputStream));
 
             //controller.rebalance();
             //TODO: re-enable rebalance once other systems are tested

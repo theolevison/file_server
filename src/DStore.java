@@ -27,8 +27,8 @@ public class DStore {
             PrintWriter controllerOut = new PrintWriter(controllerOutputStream);
             //controller.getOutputStream().write(("JOIN "+port).getBytes(StandardCharsets.UTF_8));
             controllerOut.println("JOIN "+port);
-            controllerOut.println("JOIN "+port);
-            controllerOut.println("JOIN "+port);
+            controllerOut.flush();
+
             System.out.println("connection successful");
 
             InputStream controllerIn = controller.getInputStream();
@@ -60,18 +60,16 @@ public class DStore {
                                     while ((input = clientIn.readLine()) != null) {
 
                                         //find the command
-                                        int firstSpace = input.indexOf(" ");
-                                        String command = input.substring(0, firstSpace);
-                                        System.out.println("command " + command);
+                                        String[] commands = input.split(" ");
+                                        System.out.println("command " + commands);
 
-                                        if (command.equals("STORE")) {
+                                        if (commands[0].equals("STORE")) {
                                             //get file name
-                                            int secondSpace = input.indexOf(" ", firstSpace + 1);
-                                            String fileName = input.substring(firstSpace + 1, secondSpace);
+                                            String fileName = commands[1];
                                             System.out.println("fileName " + fileName);
 
                                             //get file size
-                                            int filesize = Integer.parseInt(input.substring(secondSpace + 1));
+                                            int filesize = Integer.parseInt(commands[2]);
 
                                             try {
                                                 clientOut.println("ACK");
@@ -81,7 +79,7 @@ public class DStore {
 
                                                 //find the file content and write it to file
                                                 //File outputFile = new File(fileName);
-                                                System.out.println("test1 " + filesize);
+                                                System.out.println("filesize " + filesize);
                                                 //FileWriter out2 = new FileWriter(outputFile);
                                                 FileOutputStream fileout = new FileOutputStream(file_folder + "/" + fileName);
                                                 System.out.println("test2");
@@ -103,10 +101,9 @@ public class DStore {
                                             } catch (IOException ioException) {
                                                 ioException.printStackTrace();
                                             }
-                                        } else if (command.equals("LOAD_DATA")) {
+                                        } else if (commands[0].equals("LOAD_DATA")) {
                                             //get file name
-                                            int secondSpace = input.indexOf(" ", firstSpace + 1);
-                                            String fileName = input.substring(firstSpace + 1, secondSpace);
+                                            String fileName = commands[1];
                                             System.out.println("fileName " + fileName);
 
                                             try {
@@ -126,10 +123,9 @@ public class DStore {
                                                 System.out.println(e);
                                             }
 
-                                        } else if (command.equals("REMOVE")) {
+                                        } else if (commands[0].equals("REMOVE")) {
                                             //get file name
-                                            int secondSpace = input.indexOf(" ", firstSpace + 1);
-                                            String fileName = input.substring(firstSpace + 1, secondSpace);
+                                            String fileName = commands[1];
                                             System.out.println("fileName " + fileName);
 
                                             try {
@@ -147,88 +143,86 @@ public class DStore {
                                             } catch (Exception e) {
                                                 System.out.println(e);
                                             }
-                                        } else if (command.equals("REBALANCE")) {
-                                            //find dstores to send stuff to
-                                            int secondSpace = input.indexOf(" ", firstSpace + 1);
-                                            int numberToSend = Integer.parseInt(input.substring(firstSpace + 1, secondSpace));
-                                            System.out.println("number of files to send " + numberToSend);
+//                                        } else if (commands[0].equals("REBALANCE")) {
+//                                            //find dstores to send stuff to
+//                                            int numberToSend = Integer.parseInt(commands[2]);
+//                                            System.out.println("number of files to send " + numberToSend);
+//
+//                                            String buffer = input.substring(secondSpace + 1);
+//                                            for (int i = 0; i < numberToSend; i++) {
+//
+//                                                firstSpace = buffer.indexOf(" ");
+//                                                String fileToSend = buffer.substring(0, firstSpace);
+//                                                System.out.println("file to send " + fileToSend);
+//
+//                                                secondSpace = buffer.indexOf(" ", secondSpace + 1);
+//                                                int numberOfDstores = Integer.parseInt(buffer.substring(firstSpace + 1, secondSpace));
+//                                                buffer = input.substring(secondSpace + 1);
+//                                                for (int j = 0; j < numberOfDstores; j++) {
+//                                                    firstSpace = buffer.indexOf(" ", 0);
+//                                                    String dstore = buffer.substring(0, firstSpace);
+//                                                    buffer = input.substring(firstSpace + 1);
+//                                                    System.out.println("dstore that needs a file on port " + dstore);
+//
+//                                                    try {
+//                                                        InputStream dstoreIn = new ServerSocket(Integer.parseInt(dstore)).accept().getInputStream();
+//                                                        File file = new File(fileToSend);
+//
+//                                                        OutputStream dstoreOut = new ServerSocket(Integer.parseInt(dstore)).accept().getOutputStream();
+//
+//                                                        if (file.exists()) {
+//                                                            dstoreOut.write(("REBALANCE_STORE " + fileToSend + file.length()).getBytes(StandardCharsets.UTF_8));
+//
+//                                                            //find the command
+//                                                            buflen = clientInputStream.read(buf);
+//                                                            input = new String(buf, 0, buflen);
+//                                                            firstSpace = input.indexOf(" ");
+//                                                            commands[0] = input.substring(0, firstSpace);
+//                                                            System.out.println("command " + commands[0]);
+//
+//                                                            if (commands[0].equals("ACK")) {
+//                                                                FileInputStream inf = new FileInputStream(file);
+//
+//                                                                while ((buflen = inf.read(buf)) != -1) {
+//                                                                    System.out.println("*");
+//                                                                    dstoreOut.write(buf, 0, buflen);
+//                                                                }
+//                                                                inf.close();
+//                                                            } else {
+//                                                                //TODO: log error no ACK
+//                                                            }
+//                                                            dstoreOut.close();
+//                                                        }
+//                                                        dstoreIn.close();
+//                                                    } catch (Exception e) {
+//                                                        System.out.println(e);
+//                                                    }
+//                                                }
+//
+//                                            }
+//
+//                                            //find what to delete
+//                                            firstSpace = input.indexOf(" ", 0);
+//                                            int numberToRemove = Integer.parseInt(input.substring(firstSpace + 1, secondSpace));
+//                                            buffer = input.substring(firstSpace + 1);
+//                                            for (int i = 0; i < numberToRemove; i++) {
+//                                                firstSpace = buffer.indexOf(" ", 0);
+//                                                String file = buffer.substring(0, firstSpace);
+//                                                buffer = input.substring(firstSpace + 1);
+//
+//                                                //remove file from server
+//                                                File file2 = new File(file);
+//                                                file2.delete();
+//                                            }
 
-                                            String buffer = input.substring(secondSpace + 1);
-                                            for (int i = 0; i < numberToSend; i++) {
 
-                                                firstSpace = buffer.indexOf(" ");
-                                                String fileToSend = buffer.substring(0, firstSpace);
-                                                System.out.println("file to send " + fileToSend);
-
-                                                secondSpace = buffer.indexOf(" ", secondSpace + 1);
-                                                int numberOfDstores = Integer.parseInt(buffer.substring(firstSpace + 1, secondSpace));
-                                                buffer = input.substring(secondSpace + 1);
-                                                for (int j = 0; j < numberOfDstores; j++) {
-                                                    firstSpace = buffer.indexOf(" ", 0);
-                                                    String dstore = buffer.substring(0, firstSpace);
-                                                    buffer = input.substring(firstSpace + 1);
-                                                    System.out.println("dstore that needs a file on port " + dstore);
-
-                                                    try {
-                                                        InputStream dstoreIn = new ServerSocket(Integer.parseInt(dstore)).accept().getInputStream();
-                                                        File file = new File(fileToSend);
-
-                                                        OutputStream dstoreOut = new ServerSocket(Integer.parseInt(dstore)).accept().getOutputStream();
-
-                                                        if (file.exists()) {
-                                                            dstoreOut.write(("REBALANCE_STORE " + fileToSend + file.length()).getBytes(StandardCharsets.UTF_8));
-
-                                                            //find the command
-                                                            buflen = clientInputStream.read(buf);
-                                                            input = new String(buf, 0, buflen);
-                                                            firstSpace = input.indexOf(" ");
-                                                            command = input.substring(0, firstSpace);
-                                                            System.out.println("command " + command);
-
-                                                            if (command.equals("ACK")) {
-                                                                FileInputStream inf = new FileInputStream(file);
-
-                                                                while ((buflen = inf.read(buf)) != -1) {
-                                                                    System.out.println("*");
-                                                                    dstoreOut.write(buf, 0, buflen);
-                                                                }
-                                                                inf.close();
-                                                            } else {
-                                                                //TODO: log error no ACK
-                                                            }
-                                                            dstoreOut.close();
-                                                        }
-                                                        dstoreIn.close();
-                                                    } catch (Exception e) {
-                                                        System.out.println(e);
-                                                    }
-                                                }
-
-                                            }
-
-                                            //find what to delete
-                                            firstSpace = input.indexOf(" ", 0);
-                                            int numberToRemove = Integer.parseInt(input.substring(firstSpace + 1, secondSpace));
-                                            buffer = input.substring(firstSpace + 1);
-                                            for (int i = 0; i < numberToRemove; i++) {
-                                                firstSpace = buffer.indexOf(" ", 0);
-                                                String file = buffer.substring(0, firstSpace);
-                                                buffer = input.substring(firstSpace + 1);
-
-                                                //remove file from server
-                                                File file2 = new File(file);
-                                                file2.delete();
-                                            }
-
-
-                                        } else if (command.equals("REBALANCE_STORE")) {
+                                        } else if (commands[0].equals("REBALANCE_STORE")) {
                                             //get file name
-                                            int secondSpace = input.indexOf(" ", firstSpace + 1);
-                                            String fileName = input.substring(firstSpace + 1, secondSpace);
+                                            String fileName = commands[1];
                                             System.out.println("fileName " + fileName);
 
                                             //get file size
-                                            int filesize = Integer.parseInt(input.substring(secondSpace + 1));
+                                            int filesize = Integer.parseInt(commands[2]);
 
                                             //here the client is actually a dstore
                                             try {

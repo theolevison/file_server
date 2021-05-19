@@ -31,36 +31,24 @@ public class Controller {
             ServerSocket clientSocket = new ServerSocket(controller.cport);
 
             for (int i = 0; i < controller.R; i++) {
-                System.out.println("waiting for connection from dstore");
+                System.out.println("waiting for connection from " + i + " dstore/s");
                 Socket client = clientSocket.accept();
                 System.out.println("dstore connected");
 
                 InputStream clientInputStream = client.getInputStream();
                 BufferedReader clientIn = new BufferedReader(new InputStreamReader(clientInputStream));
-                String input;
-                try {
-                    input = clientIn.readLine();
-                    System.out.println(input);
-                } catch (IOException e){
-                    System.out.println("fail");
-                }
+                String input = clientIn.readLine();
+                //find the command
+                String[] commands = input.split(" ");
+                System.out.println("command " + Arrays.toString(commands));
 
+                if (commands[0].equals(Protocol.JOIN_TOKEN)) {
+                    //get port
+                    String port = commands[1];
+                    System.out.println("new dstore joined on port " + port);
 
-                while ((input = clientIn.readLine()) != null) {
-                    //find the command
-                    int firstSpace = input.indexOf(" ");
-
-                    String command = input.substring(0, firstSpace);
-                    System.out.println("command " + command);
-
-                    if (command.equals("JOIN")) {
-                        //get port
-                        String port = input.substring(firstSpace + 1);
-                        System.out.println("new dstore joined on port " + port);
-
-                        controller.dStores.add(new DStoreObject(Integer.parseInt(port), client));
-                        System.out.println("dstore joined successfully");
-                    }
+                    controller.dStores.add(new DStoreObject(Integer.parseInt(port), client));
+                    System.out.println("dstore joined successfully");
                 }
             }
 
@@ -81,218 +69,12 @@ public class Controller {
                                 BufferedReader clientIn = new BufferedReader(new InputStreamReader(clientInputStream));
                                 OutputStream clientOutputStream = client.getOutputStream();
                                 PrintWriter clientOut = new PrintWriter(clientOutputStream);
-                                byte[] buf = new byte[1000];
-                                int buflen;
+
 
                                 String input;
 
                                 while ((input = clientIn.readLine()) != null) {
-                                    System.out.println(input);
-                                    //find the command
-                                    int firstSpace = input.indexOf(" ");
-                                    //check if there are any spaces at all, otherwise get whole line
-                                    if (firstSpace == -1) {
-                                        firstSpace = input.length();
-                                    }
-                                    String command = input.substring(0, firstSpace);
-                                    System.out.println("command " + command);
-
-                                    if (command.equals("STORE")) {
-                                        //get file name
-                                        int secondSpace = input.indexOf(" ", firstSpace + 1);
-                                        String fileName = input.substring(firstSpace + 1, secondSpace);
-                                        System.out.println("fileName " + fileName);
-
-                                        //get file size
-                                        int filesize = Integer.parseInt(input.substring(secondSpace + 1));
-
-                                        //update index
-                                        if (controller.index.putIfAbsent(fileName, new FileObject(fileName, filesize, "store in progress")) != null) {
-                                            clientOut.println("ERROR_FILE_ALREADY_EXISTS");
-                                            clientOut.flush();
-                                            //clientOut.write("ERROR_FILE_ALREADY_EXISTS".getBytes(StandardCharsets.UTF_8));
-                                        } else {
-                                            //select R dstores
-                                            try {
-                                                //build string of dstore ports
-                                                StringBuilder outputMsg = new StringBuilder("STORE_TO ");
-                                                List<DStoreObject> sublist = controller.dStores.subList(0, controller.R);
-                                                sublist.forEach(v -> outputMsg.append(v.getPort()).append(" "));
-
-                                                try {
-                                                    System.out.println("send ports to client");
-                                                    //send the list of ports to client
-                                                    clientOut.println(outputMsg);
-                                                    clientOut.flush();
-                                                    //clientOut.write(outputMsg.toString().getBytes(StandardCharsets.UTF_8));
-
-                                                    //check acks from all the dstores
-                                                    boolean flag = false;
-                                                    for (DStoreObject dstore : sublist) {
-                                                        BufferedReader dstoreIn = new BufferedReader(new InputStreamReader(dstore.getSocket().getInputStream()));
-                                                        String ack = dstoreIn.readLine();
-
-                                                        if (!ack.equals("ACK " + fileName)) {
-                                                            //no ack
-                                                            System.out.println("no ack");
-                                                            flag = true;
-                                                        } else {
-                                                            System.out.println("ack received");
-                                                        }
-                                                        //dstoreIn.close();
-                                                    }
-                                                    //change status and update client
-                                                    if (flag) {
-                                                        controller.index.remove(fileName);
-                                                    } else {
-                                                        controller.index.get(fileName).setStatus("store complete");
-                                                        System.out.println("store complete");
-                                                        clientOut.println("STORE_COMPLETE");
-                                                        clientOut.flush();
-                                                        //clientOut.write("STORE_COMPLETE".getBytes(StandardCharsets.UTF_8));
-                                                    }
-
-                                                } catch (IOException ioException) {
-                                                    ioException.printStackTrace();
-                                                }
-                                            } catch (IndexOutOfBoundsException e) {
-                                                System.out.println("not enough dstores, add more");
-                                                clientOut.println("ERROR_NOT_ENOUGH_DSTORES");
-                                                controller.index.remove(fileName);
-                                                //clientOut.write("ERROR_NOT_ENOUGH_DSTORES".getBytes(StandardCharsets.UTF_8));
-                                                clientOut.flush();
-                                            }
-                                        }
-                                    } else if (command.equals("LOAD")) {
-                                        //get file name
-                                        int secondSpace = input.indexOf(" ", firstSpace + 1);
-                                        String fileName = input.substring(firstSpace + 1, secondSpace);
-                                        System.out.println("fileName " + fileName);
-
-                                        if (controller.index.containsKey(fileName)) {
-                                            try {
-                                                DStoreObject dstore = controller.dStores.get(0);
-
-                                                try {
-                                                    clientOut.println("LOAD_FROM " + dstore.getPort() + " " + controller.index.get(fileName).getSize());
-                                                    clientOut.flush();
-                                                    //clientOut.write(("LOAD_FROM " + dstore.getPort() + " " + controller.index.get(fileName).getSize()).getBytes(StandardCharsets.UTF_8));
-
-                                                    int count = 1;
-                                                    do {
-                                                        //check if RELOAD
-                                                        //find the command
-                                                        firstSpace = input.indexOf(" ");
-                                                        command = input.substring(0, firstSpace);
-                                                        System.out.println("command " + command);
-
-                                                        //TODO: work out if this should go in general commands to catch?
-                                                        if (command.equals("RELOAD")) {
-                                                            //get file name
-                                                            secondSpace = input.indexOf(" ", firstSpace + 1);
-                                                            fileName = input.substring(firstSpace + 1, secondSpace);
-                                                            System.out.println("fileName " + fileName);
-
-                                                            try {
-                                                                dstore = controller.dStores.get(count);
-                                                            } catch (IndexOutOfBoundsException e) {
-                                                                clientOut.println("ERROR_LOAD");
-                                                                clientOut.flush();
-                                                                //clientOut.write(("ERROR_LOAD").getBytes(StandardCharsets.UTF_8));
-                                                            }
-                                                            count++;
-                                                            clientOut.println("LOAD_FROM " + dstore.getPort() + " " + controller.index.get(fileName).getSize());
-                                                            clientOut.flush();
-                                                            //clientOut.write(("LOAD_FROM " + dstore.getPort() + " " + controller.index.get(fileName).getSize()).getBytes(StandardCharsets.UTF_8));
-                                                        }
-                                                    } while (command.equals("RELOAD"));
-                                                    clientOut.flush();
-
-                                                } catch (Exception e) {
-                                                    System.out.println(e);
-                                                }
-                                            } catch (IndexOutOfBoundsException e) {
-                                                clientOut.println("ERROR_NOT_ENOUGH_DSTORES");
-                                                //clientOut.write(("ERROR_NOT_ENOUGH_DSTORES").getBytes(StandardCharsets.UTF_8));
-                                                clientOut.flush();
-                                            }
-                                        } else {
-                                            clientOut.write("ERROR_FILE_DOES_NOT_EXIST");
-                                            //clientOut.write(("ERROR_FILE_DOES_NOT_EXIST").getBytes(StandardCharsets.UTF_8));
-                                            clientOut.flush();
-                                        }
-
-                                    } else if (command.equals("REMOVE")) {
-                                        //get file name
-                                        int secondSpace = input.indexOf(" ", firstSpace + 1);
-                                        String fileName = input.substring(firstSpace + 1, secondSpace);
-                                        System.out.println("fileName " + fileName);
-
-                                        if (controller.index.containsKey(fileName)) {
-                                            controller.index.get(fileName).setStatus("remove in progress");
-
-                                            int count = 0;
-
-                                            if (controller.dStores.size() < controller.R) {
-                                                clientOut.println("ERROR_NOT_ENOUGH_DSTORES");
-                                                //clientOut.write(("ERROR_NOT_ENOUGH_DSTORES").getBytes(StandardCharsets.UTF_8));
-                                                clientOut.flush();
-                                            } else {
-                                                for (DStoreObject dstore : controller.dStores) {
-                                                    OutputStream dstoreOut = dstore.getSocket().getOutputStream();
-                                                    dstoreOut.write(("REMOVE " + fileName).getBytes(StandardCharsets.UTF_8));
-
-                                                    InputStream dstoreIn = dstore.getSocket().getInputStream();
-                                                    buflen = dstoreIn.read(buf);
-
-                                                    String ack = new String(buf, 0, buflen - 1);
-
-                                                    if (ack.equals("REMOVE_ACK " + fileName)) {
-                                                        count++;
-                                                    } else {
-                                                        //TODO: log error, malformed command
-                                                    }
-                                                    dstoreIn.close();
-                                                    dstoreOut.close();
-                                                }
-
-                                                if (count == controller.R) {
-                                                    controller.index.get(fileName).setStatus("remove complete");
-                                                    clientOut.println("REMOVE_COMPLETE");
-                                                    //clientOut.write(("REMOVE_COMPLETE").getBytes(StandardCharsets.UTF_8));
-                                                    clientOut.flush();
-                                                } else {
-                                                    //TODO: log error not all dstores ack
-                                                }
-                                            }
-                                        } else {
-                                            //clientOut.write(("ERROR_FILE_DOES_NOT_EXIST").getBytes(StandardCharsets.UTF_8));
-                                            clientOut.println("ERROR_FILE_DOES_NOT_EXIST");
-                                            clientOut.flush();
-                                        }
-                                    } else if (command.equals("LIST")) {
-                                        StringBuilder outputMsg = new StringBuilder("LIST ");
-                                        controller.index.forEach((k, v) -> outputMsg.append(v.getName()).append(" "));
-
-                                        //clientOut.write(outputMsg.toString().getBytes(StandardCharsets.UTF_8));
-                                        clientOut.println(outputMsg);
-                                        System.out.println(outputMsg);
-                                        //clientOut.close();
-                                        clientOut.flush();
-
-                                    } else if (command.equals("JOIN")) {
-                                        //get port
-                                        String port = input.substring(firstSpace + 1);
-                                        System.out.println("new dstore joined on port " + port);
-
-                                        controller.dStores.add(new DStoreObject(Integer.parseInt(port), client));
-
-                                        //controller.rebalance();
-                                        //TODO: re-enable rebalance once other systems are tested
-                                    } else {
-                                        //malformed command
-                                        //TODO: log error and continue
-                                    }
+                                    controller.doOperations(client, input.split(" "), clientOut, clientOutputStream, clientIn, clientInputStream);
                                 }
                             } catch (Exception e) {
                                 System.out.println(e);
@@ -305,6 +87,198 @@ public class Controller {
             }
         } catch (Exception e) {
             System.out.println(e);
+        }
+    }
+
+    private void doOperations(Socket client, String[] commands, PrintWriter clientOut, OutputStream clientOutputStream, BufferedReader clientIn, InputStream clientInputStream) throws IOException {
+        byte[] buf = new byte[1000];
+        int buflen;
+
+        System.out.println("command " + Arrays.toString(commands));
+
+        if (commands[0].equals(Protocol.STORE_TOKEN)) {
+            //get file name
+            String fileName = commands[1];
+            System.out.println("fileName " + fileName);
+
+            //get file size
+            int filesize = Integer.parseInt(commands[2]);
+            System.out.println("fileSize " + filesize);
+
+            //update index
+            if (index.putIfAbsent(fileName, new FileObject(fileName, filesize, "store in progress")) != null) {
+                clientOut.println(Protocol.ERROR_FILE_ALREADY_EXISTS_TOKEN);
+                clientOut.flush();
+                //clientOut.write("ERROR_FILE_ALREADY_EXISTS".getBytes(StandardCharsets.UTF_8));
+            } else {
+                //select R dstores
+                try {
+                    //build string of dstore ports
+                    StringBuilder outputMsg = new StringBuilder(Protocol.STORE_TO_TOKEN+" ");
+                    List<DStoreObject> sublist = dStores.subList(0, R);
+                    sublist.forEach(v -> outputMsg.append(v.getPort()).append(" "));
+
+                    try {
+                        System.out.println("send ports to client");
+                        //send the list of ports to client
+                        clientOut.println(outputMsg);
+                        clientOut.flush();
+                        //clientOut.write(outputMsg.toString().getBytes(StandardCharsets.UTF_8));
+
+                        //check acks from all the dstores
+                        boolean flag = false;
+                        for (DStoreObject dstore : sublist) {
+                            BufferedReader dstoreIn = new BufferedReader(new InputStreamReader(dstore.getSocket().getInputStream()));
+                            String ack = dstoreIn.readLine();
+
+                            if (!ack.equals(Protocol.STORE_ACK_TOKEN + " " + fileName)) {
+                                //no ack
+                                System.out.println("no ack");
+                                flag = true;
+                            } else {
+                                System.out.println("ack received");
+                            }
+                            //dstoreIn.close();
+                        }
+                        //change status and update client
+                        if (flag) {
+                            index.remove(fileName);
+                        } else {
+                            index.get(fileName).setStatus("store complete");
+                            System.out.println("store complete");
+                            clientOut.println(Protocol.STORE_COMPLETE_TOKEN);
+                            clientOut.flush();
+                            //clientOut.write("STORE_COMPLETE".getBytes(StandardCharsets.UTF_8));
+                        }
+
+                    } catch (IOException ioException) {
+                        ioException.printStackTrace();
+                    }
+                } catch (IndexOutOfBoundsException e) {
+                    System.out.println("not enough dstores, add more");
+                    clientOut.println(Protocol.ERROR_NOT_ENOUGH_DSTORES_TOKEN);
+                    index.remove(fileName);
+                    //clientOut.write("ERROR_NOT_ENOUGH_DSTORES".getBytes(StandardCharsets.UTF_8));
+                    clientOut.flush();
+                }
+            }
+        } else if (commands[0].equals(Protocol.LOAD_TOKEN)) {
+            //get file name
+            String fileName = commands[1];
+            System.out.println("fileName " + fileName);
+
+            if (index.containsKey(fileName)) {
+                try {
+                    int count = 0;
+                    DStoreObject dstore = dStores.get(count);
+
+                    try {
+                        clientOut.println(Protocol.LOAD_FROM_TOKEN + " " + dstore.getPort() + " " + index.get(fileName).getSize());
+                        clientOut.flush();
+
+                        String input;
+                        while ((input = clientIn.readLine()) != null) {
+                            commands = input.split(" ");
+                            if (commands[0].equals(Protocol.RELOAD_TOKEN)){
+                                //get file name
+                                fileName = commands[1];
+                                System.out.println("fileName " + fileName);
+
+                                try {
+                                    dstore = dStores.get(count);
+                                } catch (IndexOutOfBoundsException e) {
+                                    clientOut.println(Protocol.ERROR_LOAD_TOKEN);
+                                    clientOut.flush();
+                                    //clientOut.write(("ERROR_LOAD").getBytes(StandardCharsets.UTF_8));
+                                }
+                                count++;
+                                clientOut.println(Protocol.LOAD_FROM_TOKEN + " " + dstore.getPort() + " " + index.get(fileName).getSize());
+                                clientOut.flush();
+                            } else {
+                                doOperations(client, commands, clientOut, clientOutputStream, clientIn, clientInputStream);
+                                return;
+                            }
+                        }
+                    } catch (Exception e) {
+                        System.out.println(e);
+                    }
+                } catch (IndexOutOfBoundsException e) {
+                    clientOut.println(Protocol.ERROR_NOT_ENOUGH_DSTORES_TOKEN);
+                    clientOut.flush();
+                }
+            } else {
+                clientOut.println(Protocol.ERROR_FILE_DOES_NOT_EXIST_TOKEN);
+                clientOut.flush();
+            }
+
+        } else if (commands[0].equals(Protocol.REMOVE_TOKEN)) {
+            //get file name
+            String fileName = commands[1];
+            System.out.println("fileName " + fileName);
+
+            if (index.containsKey(fileName)) {
+                index.get(fileName).setStatus("remove in progress");
+
+                int count = 0;
+
+                if (dStores.size() < R) {
+                    clientOut.println(Protocol.ERROR_NOT_ENOUGH_DSTORES_TOKEN);
+                    clientOut.flush();
+                } else {
+                    for (DStoreObject dstore : dStores) {
+                        OutputStream dstoreOut = dstore.getSocket().getOutputStream();
+                        dstoreOut.write((Protocol.REMOVE_TOKEN + " " + fileName).getBytes(StandardCharsets.UTF_8));
+
+                        InputStream dstoreIn = dstore.getSocket().getInputStream();
+                        buflen = dstoreIn.read(buf);
+
+                        String ack = new String(buf, 0, buflen - 1);
+
+                        if (ack.equals(Protocol.REMOVE_ACK_TOKEN + " " + fileName)) {
+                            count++;
+                        } else {
+                            //TODO: log error, malformed command
+                        }
+                        dstoreIn.close();
+                        dstoreOut.close();
+                    }
+
+                    if (count == R) {
+                        index.get(fileName).setStatus("remove complete");
+                        clientOut.println(Protocol.REMOVE_COMPLETE_TOKEN);
+                        //clientOut.write(("REMOVE_COMPLETE").getBytes(StandardCharsets.UTF_8));
+                        clientOut.flush();
+                    } else {
+                        //TODO: log error not all dstores ack
+                    }
+                }
+            } else {
+                //clientOut.write(("ERROR_FILE_DOES_NOT_EXIST").getBytes(StandardCharsets.UTF_8));
+                clientOut.println(Protocol.ERROR_FILE_DOES_NOT_EXIST_TOKEN);
+                clientOut.flush();
+            }
+        } else if (commands[0].equals(Protocol.LIST_TOKEN)) {
+            StringBuilder outputMsg = new StringBuilder(Protocol.LIST_TOKEN + " ");
+            index.forEach((k, v) -> outputMsg.append(v.getName()).append(" "));
+
+            //clientOut.write(outputMsg.toString().getBytes(StandardCharsets.UTF_8));
+            clientOut.println(outputMsg);
+            System.out.println(outputMsg);
+            //clientOut.close();
+            clientOut.flush();
+
+        } else if (commands[0].equals(Protocol.JOIN_TOKEN)) {
+            //get port
+            String port = commands[1];
+            System.out.println("new dstore joined on port " + port);
+
+            dStores.add(new DStoreObject(Integer.parseInt(port), client));
+
+            //controller.rebalance();
+            //TODO: re-enable rebalance once other systems are tested
+        } else {
+            //malformed command
+            //TODO: log error and continue
         }
     }
 
@@ -328,7 +302,7 @@ public class Controller {
             String command = firstBuffer.substring(0, firstSpace);
             System.out.println("command " + command);
 
-            if (command.equals("LIST")) {
+            if (command.equals(Protocol.LIST_TOKEN)) {
                 String[] listOfFilesInDstore = firstBuffer.substring(firstSpace + 1, buflen-1).split(" ");
                 Arrays.stream(listOfFilesInDstore).forEach(file -> {
                     if (fileLocations.containsKey(file)){
@@ -383,7 +357,7 @@ public class Controller {
             OutputStream dstoreOut = dstore.getSocket().getOutputStream();
 
             //files to send
-            StringBuilder outputMsg = new StringBuilder("REBALANCE ");
+            StringBuilder outputMsg = new StringBuilder(Protocol.REBALANCE_TOKEN + " ");
             filesToSend.forEach((k,v) -> {
                 if (fileLocations.get(k).contains(dstore)) {
                     outputMsg.append(k).append(v.size()).append(" ");
@@ -407,7 +381,7 @@ public class Controller {
             String command = firstBuffer.substring(0, firstSpace);
             System.out.println("command " + command);
 
-            if (!command.equals("REBALANCE_COMPLETE")) {
+            if (!command.equals(Protocol.REMOVE_COMPLETE_TOKEN)) {
                 //TODO: log error
             }
         }

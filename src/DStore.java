@@ -2,9 +2,6 @@ import java.io.*;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.util.ArrayList;
 import java.util.Arrays;
 
 public class DStore {
@@ -16,8 +13,11 @@ public class DStore {
         String file_folder= args[3];
         File store = new File(file_folder);
         if (!store.exists()){
-            store.mkdir();
+            if (!store.mkdir()){
+                System.out.println("not able to create folder for dstore");
+            }
         }
+        DstoreLogger.init(Logger.LoggingType.ON_FILE_AND_TERMINAL, port);
 
         //start server and keep checking for connections
         try {
@@ -29,6 +29,7 @@ public class DStore {
             //controller.getOutputStream().write(("JOIN "+port).getBytes(StandardCharsets.UTF_8));
             controllerOut.println(Protocol.JOIN_TOKEN + " " +port);
             controllerOut.flush();
+            DstoreLogger.getInstance().messageSent(controller, Protocol.JOIN_TOKEN + " " +port);
 
             System.out.println("connection successful");
 
@@ -42,6 +43,7 @@ public class DStore {
                         String input;
 
                         while ((input = controllerIn.readLine()) != null) {
+                            DstoreLogger.getInstance().messageReceived(controller, input);
                             //find the command
                             String[] commands = input.split(" ");
                             System.out.println("command " + Arrays.toString(commands));
@@ -57,12 +59,14 @@ public class DStore {
                                         if (file.delete()) {
                                             controllerOut.println(Protocol.REMOVE_ACK_TOKEN + " " + fileName);
                                             controllerOut.flush();
+                                            DstoreLogger.getInstance().messageSent(controller, Protocol.REMOVE_ACK_TOKEN + " " + fileName);
                                         } else {
                                             System.out.println("unable to delete file " + fileName);
                                         }
                                     } else {
                                         controllerOut.println(Protocol.ERROR_FILE_DOES_NOT_EXIST_TOKEN + " " + fileName);
                                         controllerOut.flush();
+                                        DstoreLogger.getInstance().messageSent(controller, Protocol.ERROR_FILE_DOES_NOT_EXIST_TOKEN + " " + fileName);
                                     }
 
                                 } catch (Exception e) {
@@ -138,10 +142,11 @@ public class DStore {
 //                                    //remove file from server
 //                                    File file2 = new File(file);
 //                                    file2.delete();
+//                                }
                             }
                         }
                     } catch (IOException e){
-
+                        System.out.println(e);
                     }
                 }
             }).start();
@@ -162,88 +167,93 @@ public class DStore {
                                 OutputStream clientOutputStream = client.getOutputStream();
                                 PrintWriter clientOut = new PrintWriter(clientOutputStream);
 
-                                byte[] buf = new byte[1000];
-                                int buflen;
-
                                 try {
                                     System.out.println("checking for input");
                                     String input;
 
                                     while ((input = clientIn.readLine()) != null) {
+                                        DstoreLogger.getInstance().messageReceived(client, input);
 
                                         //find the command
                                         String[] commands = input.split(" ");
                                         System.out.println("command " + Arrays.toString(commands));
 
-                                        if (commands[0].equals(Protocol.STORE_TOKEN)) {
-                                            //get file name
-                                            String fileName = commands[1];
-                                            System.out.println("fileName " + fileName);
+                                        switch (commands[0]) {
+                                            case Protocol.STORE_TOKEN: {
+                                                //get file name
+                                                String fileName = commands[1];
+                                                System.out.println("fileName " + fileName);
 
-                                            //get file size
-                                            int filesize = Integer.parseInt(commands[2]);
+                                                //get file size
+                                                int filesize = Integer.parseInt(commands[2]);
 
-                                            try {
-                                                clientOut.println(Protocol.ACK_TOKEN);
-                                                clientOut.flush();
-                                                System.out.println("sent ack");
+                                                try {
+                                                    clientOut.println(Protocol.ACK_TOKEN);
+                                                    clientOut.flush();
+                                                    DstoreLogger.getInstance().messageSent(client, Protocol.ACK_TOKEN);
+                                                    System.out.println("sent ack");
 
-                                                FileOutputStream fileout = new FileOutputStream(file_folder + "/" + fileName);
-                                                fileout.write(clientInputStream.readNBytes(filesize));
-                                                fileout.close();
+                                                    FileOutputStream fileout = new FileOutputStream(file_folder + "/" + fileName);
+                                                    fileout.write(clientInputStream.readNBytes(filesize));
+                                                    fileout.close();
 
-                                                controllerOut.println(Protocol.STORE_ACK_TOKEN + " " + fileName);
-                                                controllerOut.flush();
-                                            } catch (IOException ioException) {
-                                                ioException.printStackTrace();
-                                            }
-                                        } else if (commands[0].equals(Protocol.LOAD_DATA_TOKEN)) {
-                                            //get file name
-                                            String fileName = commands[1];
-                                            System.out.println("fileName " + fileName);
-
-                                            try {
-                                                File file = new File(file_folder + "/" + fileName);
-
-                                                if (file.exists()) {
-                                                    FileInputStream inf = new FileInputStream(file);
-
-                                                    clientOutputStream.write(inf.readAllBytes());
-                                                    clientOutputStream.flush();
-                                                    inf.close();
+                                                    controllerOut.println(Protocol.STORE_ACK_TOKEN + " " + fileName);
+                                                    controllerOut.flush();
+                                                    DstoreLogger.getInstance().messageSent(client, Protocol.STORE_ACK_TOKEN + " " + fileName);
+                                                } catch (IOException ioException) {
+                                                    ioException.printStackTrace();
                                                 }
-
-                                            } catch (Exception e) {
-                                                System.out.println(e);
+                                                break;
                                             }
-                                        } else if (commands[0].equals("REBALANCE_STORE")) {
-                                            //get file name
-                                            String fileName = commands[1];
-                                            System.out.println("fileName " + fileName);
+                                            case Protocol.LOAD_DATA_TOKEN: {
+                                                //get file name
+                                                String fileName = commands[1];
+                                                System.out.println("fileName " + fileName);
 
-                                            //get file size
-                                            int filesize = Integer.parseInt(commands[2]);
+                                                try {
+                                                    File file = new File(file_folder + "/" + fileName);
 
-                                            //here the client is actually a dstore
-                                            try {
-                                                clientOut.println("ACK");
+                                                    if (file.exists()) {
+                                                        FileInputStream inf = new FileInputStream(file);
 
-                                                //find the file content and write it to file
-                                                File outputFile = new File(fileName);
-                                                FileOutputStream fileout = new FileOutputStream(outputFile);
-                                                fileout.write(input.getBytes(StandardCharsets.UTF_8), 0, input.length());
-                                                while ((buflen = clientInputStream.read(buf)) != -1) {
-                                                    System.out.print("*");
-                                                    fileout.write(buf, 0, buflen);
+                                                        clientOutputStream.write(inf.readAllBytes());
+                                                        clientOutputStream.flush();
+                                                        inf.close();
+                                                    }
+
+                                                } catch (Exception e) {
+                                                    System.out.println(e);
                                                 }
-                                                fileout.close();
-
-                                            } catch (IOException ioException) {
-                                                ioException.printStackTrace();
+                                                break;
                                             }
-                                        } else {
-                                            //malformed command
-                                            //TODO: log error and continue
+                                            case Protocol.REBALANCE_STORE_TOKEN: {
+                                                //get file name
+                                                String fileName = commands[1];
+                                                System.out.println("fileName " + fileName);
+
+                                                //get file size
+                                                int filesize = Integer.parseInt(commands[2]);
+
+                                                //here the client is actually a dstore
+                                                try {
+                                                    clientOut.println(Protocol.ACK_TOKEN);
+                                                    clientOut.flush();
+                                                    DstoreLogger.getInstance().messageSent(client, Protocol.ACK_TOKEN);
+
+                                                    //find the file content and write it to file
+                                                    FileOutputStream fileout = new FileOutputStream(file_folder + "/" + fileName);
+                                                    fileout.write(clientInputStream.readNBytes(filesize));
+                                                    fileout.close();
+
+                                                } catch (IOException ioException) {
+                                                    ioException.printStackTrace();
+                                                }
+                                                break;
+                                            }
+                                            default:
+                                                //malformed command
+                                                //TODO: log error and continue
+                                                break;
                                         }
                                         System.out.println("waiting for more input");
                                     }

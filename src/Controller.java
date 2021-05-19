@@ -1,17 +1,15 @@
 import java.io.*;
-import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
-import java.util.concurrent.TimeUnit;
 
 
 public class Controller {
 
-    private Hashtable<String, FileObject> indexNonSynced = new Hashtable<>();
+    private final Hashtable<String, FileObject> indexNonSynced = new Hashtable<>();
     Map<String, FileObject> index = Collections.synchronizedMap(indexNonSynced);
-    private ArrayList<DStoreObject> dStores = new ArrayList<>(); //TODO: make this synchronized
+    private final ArrayList<DStoreObject> dStores = new ArrayList<>(); //TODO: make this synchronized
     int cport;
     int R;
     int timeout;
@@ -20,6 +18,7 @@ public class Controller {
     public static void main(String[] args) throws IOException {
 
         Controller controller = new Controller();
+        ControllerLogger.init(Logger.LoggingType.ON_FILE_AND_TERMINAL);
 
         controller.cport = Integer.parseInt(args[0]);
         controller.R = Integer.parseInt(args[1]);
@@ -38,6 +37,7 @@ public class Controller {
                 InputStream clientInputStream = client.getInputStream();
                 BufferedReader clientIn = new BufferedReader(new InputStreamReader(clientInputStream));
                 String input = clientIn.readLine();
+                ControllerLogger.getInstance().messageReceived(client, input);
                 //find the command
                 String[] commands = input.split(" ");
                 System.out.println("command " + Arrays.toString(commands));
@@ -49,6 +49,7 @@ public class Controller {
 
                     controller.dStores.add(new DStoreObject(Integer.parseInt(port), client, clientInputStream, client.getOutputStream()));
                     System.out.println("dstore joined successfully");
+                    ControllerLogger.getInstance().dstoreJoined(client, Integer.parseInt(port));
                 }
             }
 
@@ -71,6 +72,7 @@ public class Controller {
                                 String input;
 
                                 while ((input = clientIn.readLine()) != null) {
+                                    ControllerLogger.getInstance().messageReceived(client, input);
                                     controller.doOperations(client, input.split(" "), clientOut, clientOutputStream, clientIn, clientInputStream);
                                 }
                             } catch (Exception e) {
@@ -88,187 +90,208 @@ public class Controller {
     }
 
     private void doOperations(Socket client, String[] commands, PrintWriter clientOut, OutputStream clientOutputStream, BufferedReader clientIn, InputStream clientInputStream) throws IOException {
-        byte[] buf = new byte[1000];
-        int buflen;
 
         System.out.println("command " + Arrays.toString(commands));
 
-        if (commands[0].equals(Protocol.STORE_TOKEN)) {
-            String fileName = commands[1];
-            int filesize = Integer.parseInt(commands[2]);
+        switch (commands[0]) {
+            case Protocol.STORE_TOKEN: {
+                String fileName = commands[1];
+                int filesize = Integer.parseInt(commands[2]);
 
-            //update index
-            if (index.putIfAbsent(fileName, new FileObject(fileName, filesize, "store in progress")) != null) {
-                clientOut.println(Protocol.ERROR_FILE_ALREADY_EXISTS_TOKEN);
-                System.out.println("file already exists");
-                clientOut.flush();
-            } else {
-                //select R dstores
-                //build string of dstore ports
-                if (dStores.size() < R) {
-                    clientOut.println(Protocol.ERROR_NOT_ENOUGH_DSTORES_TOKEN);
-                    index.remove(fileName);
+                //update index
+                if (index.putIfAbsent(fileName, new FileObject(fileName, filesize, "store in progress")) != null) {
+                    clientOut.println(Protocol.ERROR_FILE_ALREADY_EXISTS_TOKEN);
+                    System.out.println("file already exists");
                     clientOut.flush();
+                    ControllerLogger.getInstance().messageSent(client, Protocol.ERROR_FILE_ALREADY_EXISTS_TOKEN);
                 } else {
-                    StringBuilder outputMsg = new StringBuilder(Protocol.STORE_TO_TOKEN + " ");
-                    List<DStoreObject> sublist = dStores.subList(0, R);
-                    sublist.forEach(v -> outputMsg.append(v.getPort()).append(" "));
-
-                    try {
-                        System.out.println("send ports to client");
-                        //send the list of ports to client
-                        clientOut.println(outputMsg);
-                        clientOut.flush();
-                        //clientOut.write(outputMsg.toString().getBytes(StandardCharsets.UTF_8));
-
-                        //check acks from all the dstores
-                        boolean flag = false;
-                        for (DStoreObject dstore : sublist) {
-                            BufferedReader dstoreIn = new BufferedReader(new InputStreamReader(dstore.getSocket().getInputStream()));
-                            String ack = dstoreIn.readLine();
-
-                            if (!ack.equals(Protocol.STORE_ACK_TOKEN + " " + fileName)) {
-                                //no ack
-                                System.out.println("no ack");
-                                flag = true;
-                            } else {
-                                System.out.println("ack received");
-                            }
-                            //dstoreIn.close();
-                        }
-                        //change status and update client
-                        if (flag) {
-                            index.remove(fileName);
-                            System.out.println("store failed, removing " + fileName);
-                        } else {
-                            index.get(fileName).setStatus("store complete");
-                            System.out.println("store complete");
-                            clientOut.println(Protocol.STORE_COMPLETE_TOKEN);
-                            clientOut.flush();
-                            //clientOut.write("STORE_COMPLETE".getBytes(StandardCharsets.UTF_8));
-                        }
-
-                    } catch (IOException ioException) {
-                        ioException.printStackTrace();
-                    }
-                }
-            }
-        } else if (commands[0].equals(Protocol.LOAD_TOKEN)) {
-            //get file name
-            String fileName = commands[1];
-            System.out.println("fileName " + fileName);
-
-            if (index.containsKey(fileName)) {
-                try {
-                    int count = 0;
-                    DStoreObject dstore = dStores.get(count);
-
-                    try {
-                        clientOut.println(Protocol.LOAD_FROM_TOKEN + " " + dstore.getPort() + " " + index.get(fileName).getSize());
-                        clientOut.flush();
-
-                        String input;
-                        while ((input = clientIn.readLine()) != null) {
-                            commands = input.split(" ");
-                            if (commands[0].equals(Protocol.RELOAD_TOKEN)){
-                                //get file name
-                                fileName = commands[1];
-                                System.out.println("fileName " + fileName);
-
-                                try {
-                                    dstore = dStores.get(count);
-                                } catch (IndexOutOfBoundsException e) {
-                                    clientOut.println(Protocol.ERROR_LOAD_TOKEN);
-                                    clientOut.flush();
-                                    //clientOut.write(("ERROR_LOAD").getBytes(StandardCharsets.UTF_8));
-                                }
-                                count++;
-                                clientOut.println(Protocol.LOAD_FROM_TOKEN + " " + dstore.getPort() + " " + index.get(fileName).getSize());
-                                clientOut.flush();
-                            } else {
-                                doOperations(client, commands, clientOut, clientOutputStream, clientIn, clientInputStream);
-                                return;
-                            }
-                        }
-                    } catch (Exception e) {
-                        System.out.println(e);
-                    }
-                } catch (IndexOutOfBoundsException e) {
-                    clientOut.println(Protocol.ERROR_NOT_ENOUGH_DSTORES_TOKEN);
-                    clientOut.flush();
-                }
-            } else {
-                clientOut.println(Protocol.ERROR_FILE_DOES_NOT_EXIST_TOKEN);
-                clientOut.flush();
-            }
-
-        } else if (commands[0].equals(Protocol.REMOVE_TOKEN)) {
-            //get file name
-            String fileName = commands[1];
-            System.out.println("fileName " + fileName);
-
-            if (index.containsKey(fileName)) {
-                index.get(fileName).setStatus("remove in progress");
-                int count = 0;
-
-                if (dStores.size() < R) {
-                    clientOut.println(Protocol.ERROR_NOT_ENOUGH_DSTORES_TOKEN);
-                    clientOut.flush();
-                } else {
-                    for (DStoreObject dstore : dStores) {
-                        PrintWriter dstoreOut = new PrintWriter(dstore.getOutputStream());
-                        dstoreOut.println(Protocol.REMOVE_TOKEN + " " + fileName);
-                        dstoreOut.flush();
-
-                        System.out.println("send remove to dstore " + dstore.getPort());
-
-                        BufferedReader dstoreIn = new BufferedReader(new InputStreamReader(dstore.getInputStream()));
-                        String input = dstoreIn.readLine();
-
-                        if (input.equals(Protocol.REMOVE_ACK_TOKEN + " " + fileName)) {
-                            count++;
-                        } else {
-                            //TODO: log error, malformed command
-                            System.out.println("remove error");
-                        }
-                    }
-
-                    if (count == R) {
-                        index.get(fileName).setStatus("remove complete");
-                        clientOut.println(Protocol.REMOVE_COMPLETE_TOKEN);
-                        //clientOut.write(("REMOVE_COMPLETE").getBytes(StandardCharsets.UTF_8));
+                    //select R dstores
+                    //build string of dstore ports
+                    if (dStores.size() < R) {
+                        clientOut.println(Protocol.ERROR_NOT_ENOUGH_DSTORES_TOKEN);
+                        ControllerLogger.getInstance().messageSent(client, Protocol.ERROR_NOT_ENOUGH_DSTORES_TOKEN);
+                        index.remove(fileName);
                         clientOut.flush();
                     } else {
-                        //TODO: log error not all dstores ack
+                        StringBuilder outputMsg = new StringBuilder(Protocol.STORE_TO_TOKEN + " ");
+                        List<DStoreObject> sublist = dStores.subList(0, R);
+                        sublist.forEach(v -> outputMsg.append(v.getPort()).append(" "));
+
+                        try {
+                            System.out.println("send ports to client");
+                            //send the list of ports to client
+                            clientOut.println(outputMsg);
+                            clientOut.flush();
+                            ControllerLogger.getInstance().messageSent(client, outputMsg.toString());
+
+                            //check acks from all the dstores
+                            boolean flag = false;
+                            for (DStoreObject dstore : sublist) {
+                                BufferedReader dstoreIn = new BufferedReader(new InputStreamReader(dstore.getSocket().getInputStream()));
+                                String ack = dstoreIn.readLine();
+                                ControllerLogger.getInstance().messageReceived(dstore.getSocket(), ack);
+
+                                if (!ack.equals(Protocol.STORE_ACK_TOKEN + " " + fileName)) {
+                                    //no ack
+                                    System.out.println("no ack");
+                                    flag = true;
+                                } else {
+                                    System.out.println("ack received");
+                                }
+                                //dstoreIn.close();
+                            }
+                            //change status and update client
+                            if (flag) {
+                                index.remove(fileName);
+                                System.out.println("store failed, removing " + fileName);
+                            } else {
+                                index.get(fileName).setStatus("store complete");
+                                System.out.println("store complete");
+                                clientOut.println(Protocol.STORE_COMPLETE_TOKEN);
+                                clientOut.flush();
+                                ControllerLogger.getInstance().messageSent(client, Protocol.STORE_COMPLETE_TOKEN);
+                            }
+
+                        } catch (IOException ioException) {
+                            ioException.printStackTrace();
+                        }
                     }
                 }
-            } else {
-                //clientOut.write(("ERROR_FILE_DOES_NOT_EXIST").getBytes(StandardCharsets.UTF_8));
-                clientOut.println(Protocol.ERROR_FILE_DOES_NOT_EXIST_TOKEN);
-                clientOut.flush();
+                break;
             }
-        } else if (commands[0].equals(Protocol.LIST_TOKEN)) {
-            StringBuilder outputMsg = new StringBuilder(Protocol.LIST_TOKEN + " ");
-            index.forEach((k, v) -> outputMsg.append(v.getName()).append(" "));
+            case Protocol.LOAD_TOKEN: {
+                //get file name
+                String fileName = commands[1];
+                System.out.println("fileName " + fileName);
 
-            //clientOut.write(outputMsg.toString().getBytes(StandardCharsets.UTF_8));
-            clientOut.println(outputMsg);
-            System.out.println(outputMsg);
-            //clientOut.close();
-            clientOut.flush();
+                if (index.containsKey(fileName)) {
+                    try {
+                        int count = 0;
+                        DStoreObject dstore = dStores.get(count);
 
-        } else if (commands[0].equals(Protocol.JOIN_TOKEN)) {
-            //get port
-            String port = commands[1];
-            System.out.println("new dstore joined on port " + port);
+                        try {
+                            clientOut.println(Protocol.LOAD_FROM_TOKEN + " " + dstore.getPort() + " " + index.get(fileName).getSize());
+                            clientOut.flush();
+                            ControllerLogger.getInstance().messageSent(client, Protocol.LOAD_FROM_TOKEN + " " + dstore.getPort() + " " + index.get(fileName).getSize());
 
-            dStores.add(new DStoreObject(Integer.parseInt(port), client, clientInputStream, clientOutputStream));
+                            String input;
+                            while ((input = clientIn.readLine()) != null) {
+                                commands = input.split(" ");
+                                if (commands[0].equals(Protocol.RELOAD_TOKEN)) {
+                                    ControllerLogger.getInstance().messageReceived(client, input);
+                                    //get file name
+                                    fileName = commands[1];
+                                    System.out.println("fileName " + fileName);
 
-            //controller.rebalance();
-            //TODO: re-enable rebalance once other systems are tested
-        } else {
-            //malformed command
-            //TODO: log error and continue
+                                    try {
+                                        dstore = dStores.get(count);
+                                    } catch (IndexOutOfBoundsException e) {
+                                        clientOut.println(Protocol.ERROR_LOAD_TOKEN);
+                                        clientOut.flush();
+                                        ControllerLogger.getInstance().messageSent(client, Protocol.ERROR_LOAD_TOKEN);
+                                    }
+                                    count++;
+                                    clientOut.println(Protocol.LOAD_FROM_TOKEN + " " + dstore.getPort() + " " + index.get(fileName).getSize());
+                                    clientOut.flush();
+                                    ControllerLogger.getInstance().messageSent(client, Protocol.LOAD_FROM_TOKEN + " " + dstore.getPort() + " " + index.get(fileName).getSize());
+                                } else {
+                                    doOperations(client, commands, clientOut, clientOutputStream, clientIn, clientInputStream);
+                                    return;
+                                }
+                            }
+                        } catch (Exception e) {
+                            System.out.println(e);
+                        }
+                    } catch (IndexOutOfBoundsException e) {
+                        clientOut.println(Protocol.ERROR_NOT_ENOUGH_DSTORES_TOKEN);
+                        clientOut.flush();
+                        ControllerLogger.getInstance().messageSent(client, Protocol.ERROR_NOT_ENOUGH_DSTORES_TOKEN);
+                    }
+                } else {
+                    clientOut.println(Protocol.ERROR_FILE_DOES_NOT_EXIST_TOKEN);
+                    clientOut.flush();
+                    ControllerLogger.getInstance().messageSent(client, Protocol.ERROR_FILE_DOES_NOT_EXIST_TOKEN);
+                }
+
+                break;
+            }
+            case Protocol.REMOVE_TOKEN: {
+                //get file name
+                String fileName = commands[1];
+                System.out.println("fileName " + fileName);
+
+                if (index.containsKey(fileName)) {
+                    index.get(fileName).setStatus("remove in progress");
+                    int count = 0;
+
+                    if (dStores.size() < R) {
+                        clientOut.println(Protocol.ERROR_NOT_ENOUGH_DSTORES_TOKEN);
+                        clientOut.flush();
+                        ControllerLogger.getInstance().messageSent(client, Protocol.ERROR_NOT_ENOUGH_DSTORES_TOKEN);
+                    } else {
+                        for (DStoreObject dstore : dStores) {
+                            PrintWriter dstoreOut = new PrintWriter(dstore.getOutputStream());
+                            dstoreOut.println(Protocol.REMOVE_TOKEN + " " + fileName);
+                            dstoreOut.flush();
+                            ControllerLogger.getInstance().messageSent(dstore.getSocket(), Protocol.REMOVE_TOKEN + " " + fileName);
+
+                            System.out.println("send remove to dstore " + dstore.getPort());
+
+                            BufferedReader dstoreIn = new BufferedReader(new InputStreamReader(dstore.getInputStream()));
+                            String input = dstoreIn.readLine();
+                            ControllerLogger.getInstance().messageReceived(dstore.getSocket(), input);
+
+                            if (input.equals(Protocol.REMOVE_ACK_TOKEN + " " + fileName)) {
+                                count++;
+                            } else {
+                                //TODO: log error, malformed command
+                                System.out.println("remove error");
+                            }
+                        }
+
+                        if (count == R) {
+                            index.get(fileName).setStatus("remove complete");
+                            index.remove(fileName);
+                            clientOut.println(Protocol.REMOVE_COMPLETE_TOKEN);
+                            clientOut.flush();
+                            ControllerLogger.getInstance().messageSent(client, Protocol.REBALANCE_COMPLETE_TOKEN);
+                        } else {
+                            //TODO: log error not all dstores ack
+                        }
+                    }
+                } else {
+                    //clientOut.write(("ERROR_FILE_DOES_NOT_EXIST").getBytes(StandardCharsets.UTF_8));
+                    clientOut.println(Protocol.ERROR_FILE_DOES_NOT_EXIST_TOKEN);
+                    clientOut.flush();
+                    ControllerLogger.getInstance().messageSent(client, Protocol.ERROR_FILE_DOES_NOT_EXIST_TOKEN);
+                }
+                break;
+            }
+            case Protocol.LIST_TOKEN:
+                StringBuilder outputMsg = new StringBuilder(Protocol.LIST_TOKEN + " ");
+                index.forEach((k, v) -> outputMsg.append(v.getName()).append(" "));
+
+                clientOut.println(outputMsg);
+                System.out.println(outputMsg);
+                clientOut.flush();
+                ControllerLogger.getInstance().messageSent(client, outputMsg.toString());
+
+                break;
+            case Protocol.JOIN_TOKEN:
+                //get port
+                String port = commands[1];
+                System.out.println("new dstore joined on port " + port);
+
+                dStores.add(new DStoreObject(Integer.parseInt(port), client, clientInputStream, clientOutputStream));
+                ControllerLogger.getInstance().dstoreJoined(client, Integer.parseInt(port));
+
+                //controller.rebalance();
+                //TODO: re-enable rebalance once other systems are tested
+                break;
+            default:
+                //malformed command
+                //TODO: log error and continue
+                break;
         }
     }
 

@@ -75,7 +75,6 @@ public class DStore {
                                         controllerOut.flush();
                                         DstoreLogger.getInstance().messageSent(controller, Protocol.ERROR_FILE_DOES_NOT_EXIST_TOKEN + " " + fileName);
                                     }
-
                                 } catch (Exception e) {
                                     System.err.println(e);
                                 }
@@ -175,11 +174,11 @@ public class DStore {
                                 PrintWriter clientOut = new PrintWriter(clientOutputStream);
 
                                 try {
-                                    System.out.println("checking for input");
                                     String input;
 
                                     while ((input = clientIn.readLine()) != null) {
                                         DstoreLogger.getInstance().messageReceived(client, input);
+                                        System.out.println(Arrays.toString(new File(file_folder).listFiles()));
 
                                         //find the command
                                         String[] commands = input.split(" ");
@@ -203,7 +202,7 @@ public class DStore {
 
                                                     controllerOut.println(Protocol.STORE_ACK_TOKEN + " " + fileName);
                                                     controllerOut.flush();
-                                                    DstoreLogger.getInstance().messageSent(client, Protocol.STORE_ACK_TOKEN + " " + fileName);
+                                                    DstoreLogger.getInstance().messageSent(controller, Protocol.STORE_ACK_TOKEN + " " + fileName);
                                                 } catch (IOException ioException) {
                                                     System.err.println(ioException);
                                                     ioException.printStackTrace();

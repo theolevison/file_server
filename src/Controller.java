@@ -3,13 +3,16 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 
 public class Controller {
 
-    private final Hashtable<String, FileObject> indexNonSynced = new Hashtable<>();
-    Map<String, FileObject> index = Collections.synchronizedMap(indexNonSynced);
-    private final ArrayList<DStoreObject> dStores = new ArrayList<>(); //TODO: make this synchronized
+    private final ConcurrentHashMap<String, FileObject> index = new ConcurrentHashMap<>();
+    //Map<String, FileObject> index = Collections.synchronizedMap(indexNonSynced);
+    private final CopyOnWriteArrayList<DStoreObject> dStores = new CopyOnWriteArrayList<>();
+    //private final ArrayList<DStoreObject> dStores = new ArrayList<>();
     int cport;
     int R;
     int timeout;
@@ -18,6 +21,8 @@ public class Controller {
     public final static String STORE_COMPLETE = "store complete";
     public final static String REMOVE_IN_PROGRESS = "remove in progress";
     public final static String REMOVE_COMPLETE = "remove complete";
+
+    //TODO: monitor when dstores timeout
 
     public static void main(String[] args) throws IOException {
 
@@ -80,16 +85,16 @@ public class Controller {
                                     controller.doOperations(client, input.split(" "), clientOut, clientOutputStream, clientIn, clientInputStream);
                                 }
                             } catch (Exception e) {
-                                System.out.println(e);
+                                System.err.println(e);
                             }
                         }
                     }).start();
                 } catch(Exception e){
-                    System.out.println(e);
+                    System.err.println(e);
                 }
             }
         } catch (Exception e) {
-            System.out.println(e);
+            System.err.println(e);
         }
     }
 
@@ -103,12 +108,13 @@ public class Controller {
                 int filesize = Integer.parseInt(commands[2]);
 
                 //update index
-                if (index.putIfAbsent(fileName, new FileObject(fileName, filesize, STORE_IN_PROGRESS)) != null) {
+                if (index.containsKey(fileName)){
                     clientOut.println(Protocol.ERROR_FILE_ALREADY_EXISTS_TOKEN);
                     System.out.println("file already exists");
                     clientOut.flush();
                     ControllerLogger.getInstance().messageSent(client, Protocol.ERROR_FILE_ALREADY_EXISTS_TOKEN);
                 } else {
+                    index.put(fileName, new FileObject(fileName, filesize, STORE_IN_PROGRESS));
                     //select R dstores
                     //build string of dstore ports
                     if (dStores.size() < R) {
@@ -137,20 +143,16 @@ public class Controller {
 
                                 if (!ack.equals(Protocol.STORE_ACK_TOKEN + " " + fileName)) {
                                     //no ack
-                                    System.out.println("no ack");
                                     flag = true;
-                                } else {
-                                    System.out.println("ack received");
                                 }
-                                //dstoreIn.close();
                             }
                             //change status and update client
                             if (flag) {
                                 index.remove(fileName);
                                 System.out.println("store failed, removing " + fileName);
                             } else {
-                                index.get(fileName).setStatus("store complete");
-                                System.out.println("store complete");
+                                index.get(fileName).setStatus(STORE_COMPLETE);
+                                System.out.println(STORE_COMPLETE);
                                 clientOut.println(Protocol.STORE_COMPLETE_TOKEN);
                                 clientOut.flush();
                                 ControllerLogger.getInstance().messageSent(client, Protocol.STORE_COMPLETE_TOKEN);
@@ -158,6 +160,7 @@ public class Controller {
 
                         } catch (IOException ioException) {
                             ioException.printStackTrace();
+                            System.err.println("something went wrong");
                         }
                     }
                 }
@@ -210,7 +213,7 @@ public class Controller {
                                     }
                                 }
                             } catch (Exception e) {
-                                System.out.println(e);
+                                System.err.println(e);
                             }
                         } catch (IndexOutOfBoundsException e) {
                             clientOut.println(Protocol.ERROR_NOT_ENOUGH_DSTORES_TOKEN);
@@ -238,7 +241,7 @@ public class Controller {
                         clientOut.flush();
                         ControllerLogger.getInstance().messageSent(client, Protocol.ERROR_FILE_DOES_NOT_EXIST_TOKEN);
                     } else {
-                        index.get(fileName).setStatus("remove in progress");
+                        index.get(fileName).setStatus(REMOVE_IN_PROGRESS);
                         int count = 0;
 
                         if (dStores.size() < R) {
@@ -267,34 +270,33 @@ public class Controller {
                             }
 
                             if (count == R) {
-                                index.get(fileName).setStatus("remove complete");
+                                index.get(fileName).setStatus(REMOVE_COMPLETE);
                                 index.remove(fileName);
                                 clientOut.println(Protocol.REMOVE_COMPLETE_TOKEN);
                                 clientOut.flush();
-                                ControllerLogger.getInstance().messageSent(client, Protocol.REBALANCE_COMPLETE_TOKEN);
+                                ControllerLogger.getInstance().messageSent(client, Protocol.REMOVE_COMPLETE_TOKEN);
                             } else {
                                 //TODO: log error not all dstores ack
                             }
                         }
                     }
                 } else {
-                    //clientOut.write(("ERROR_FILE_DOES_NOT_EXIST").getBytes(StandardCharsets.UTF_8));
                     clientOut.println(Protocol.ERROR_FILE_DOES_NOT_EXIST_TOKEN);
                     clientOut.flush();
                     ControllerLogger.getInstance().messageSent(client, Protocol.ERROR_FILE_DOES_NOT_EXIST_TOKEN);
                 }
                 break;
             }
-            case Protocol.LIST_TOKEN:
+            case Protocol.LIST_TOKEN: //TODO: fix error where list waits on index to complete stores, but timesout and thus causes null pointer exception in client
                 StringBuilder outputMsg = new StringBuilder(Protocol.LIST_TOKEN + " ");
-                index.forEach((k, v) -> {
-                    if (!(v.getStatus().equals(STORE_IN_PROGRESS) || v.getStatus().equals(REMOVE_IN_PROGRESS))) {
+                for (FileObject v : index.values()) {
+                    String status = v.getStatus();
+                    if (!(status.equals(STORE_IN_PROGRESS) || status.equals(REMOVE_IN_PROGRESS))) {
                         outputMsg.append(v.getName()).append(" ");
                     }
-                });
+                }
 
                 clientOut.println(outputMsg);
-                System.out.println(outputMsg);
                 clientOut.flush();
                 ControllerLogger.getInstance().messageSent(client, outputMsg.toString());
 

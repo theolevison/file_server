@@ -11,7 +11,14 @@ public class DStore {
         int cport = Integer.parseInt(args[1]);
         int timeout = Integer.parseInt(args[2]);
         String file_folder= args[3];
+
         File store = new File(file_folder);
+
+        for (File file : store.listFiles()){
+            file.delete();
+        }
+        store.delete();
+        store = new File(file_folder);
         if (!store.exists()){
             if (!store.mkdir()){
                 System.out.println("not able to create folder for dstore");
@@ -70,7 +77,7 @@ public class DStore {
                                     }
 
                                 } catch (Exception e) {
-                                    System.out.println(e);
+                                    System.err.println(e);
                                 }
                             } else if (commands[0].equals("REBALANCE")) {
 //                                //find dstores to send stuff to
@@ -146,7 +153,7 @@ public class DStore {
                             }
                         }
                     } catch (IOException e){
-                        System.out.println(e);
+                        System.err.println(e);
                     }
                 }
             }).start();
@@ -176,13 +183,11 @@ public class DStore {
 
                                         //find the command
                                         String[] commands = input.split(" ");
-                                        System.out.println("command " + Arrays.toString(commands));
 
                                         switch (commands[0]) {
                                             case Protocol.STORE_TOKEN: {
                                                 //get file name
                                                 String fileName = commands[1];
-                                                System.out.println("fileName " + fileName);
 
                                                 //get file size
                                                 int filesize = Integer.parseInt(commands[2]);
@@ -191,7 +196,6 @@ public class DStore {
                                                     clientOut.println(Protocol.ACK_TOKEN);
                                                     clientOut.flush();
                                                     DstoreLogger.getInstance().messageSent(client, Protocol.ACK_TOKEN);
-                                                    System.out.println("sent ack");
 
                                                     FileOutputStream fileout = new FileOutputStream(file_folder + "/" + fileName);
                                                     fileout.write(clientInputStream.readNBytes(filesize));
@@ -201,6 +205,7 @@ public class DStore {
                                                     controllerOut.flush();
                                                     DstoreLogger.getInstance().messageSent(client, Protocol.STORE_ACK_TOKEN + " " + fileName);
                                                 } catch (IOException ioException) {
+                                                    System.err.println(ioException);
                                                     ioException.printStackTrace();
                                                 }
                                                 break;
@@ -208,7 +213,6 @@ public class DStore {
                                             case Protocol.LOAD_DATA_TOKEN: {
                                                 //get file name
                                                 String fileName = commands[1];
-                                                System.out.println("fileName " + fileName);
 
                                                 try {
                                                     File file = new File(file_folder + "/" + fileName);
@@ -222,14 +226,13 @@ public class DStore {
                                                     }
 
                                                 } catch (Exception e) {
-                                                    System.out.println(e);
+                                                    System.err.println(e);
                                                 }
                                                 break;
                                             }
                                             case Protocol.REBALANCE_STORE_TOKEN: {
                                                 //get file name
                                                 String fileName = commands[1];
-                                                System.out.println("fileName " + fileName);
 
                                                 //get file size
                                                 int filesize = Integer.parseInt(commands[2]);
@@ -246,6 +249,7 @@ public class DStore {
                                                     fileout.close();
 
                                                 } catch (IOException ioException) {
+                                                    System.err.println(ioException);
                                                     ioException.printStackTrace();
                                                 }
                                                 break;
@@ -259,19 +263,19 @@ public class DStore {
                                     }
                                     System.out.println("thread ended");
                                 } catch (IOException e) {
-                                    e.printStackTrace();
+                                    System.err.println(e);
                                 }
                             } catch (IOException e) {
-                                e.printStackTrace();
+                                System.err.println(e);
                             }
                         }
                     }).start();
                 } catch (Exception e) {
-                    System.out.println(e);
+                    System.err.println(e);
                 }
             }
         } catch (Exception e) {
-            System.out.println(e);
+            System.err.println(e);
         }
     }
 }

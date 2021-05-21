@@ -137,7 +137,6 @@ public class Controller {
     }
 
     private void doOperations(Socket client, String[] commands, PrintWriter clientOut, OutputStream clientOutputStream, BufferedReader clientIn, InputStream clientInputStream) throws IOException {
-        System.out.println(index.keySet());
 
         switch (commands[0]) {
             case Protocol.STORE_TOKEN: {
@@ -313,25 +312,32 @@ public class Controller {
                 break;
             }
             case Protocol.LIST_TOKEN: //TODO: fix error where list waits on index to complete stores, but timesout and thus causes null pointer exception in client
-                StringBuilder outputMsg = new StringBuilder(Protocol.LIST_TOKEN + " ");
-                for (FileObject v : index.values()) {
-                    String status = v.getStatus();
-                    if (!(status.equals(STORE_IN_PROGRESS) || status.equals(REMOVE_IN_PROGRESS))) {
-                        outputMsg.append(v.getName()).append(" ");
+                if (dStores.size() < R) {
+                    clientOut.println(Protocol.ERROR_NOT_ENOUGH_DSTORES_TOKEN);
+                    clientOut.flush();
+                    ControllerLogger.getInstance().messageSent(client, Protocol.ERROR_NOT_ENOUGH_DSTORES_TOKEN);
+                } else {
+                    StringBuilder outputMsg = new StringBuilder(Protocol.LIST_TOKEN + " ");
+                    for (FileObject v : index.values()) {
+                        String status = v.getStatus();
+                        if (!(status.equals(STORE_IN_PROGRESS) || status.equals(REMOVE_IN_PROGRESS))) {
+                            outputMsg.append(v.getName()).append(" ");
+                        }
                     }
-                }
 
-                clientOut.println(outputMsg);
-                clientOut.flush();
-                ControllerLogger.getInstance().messageSent(client, outputMsg.toString());
+                    clientOut.println(outputMsg);
+                    clientOut.flush();
+                    ControllerLogger.getInstance().messageSent(client, outputMsg.toString());
+                }
 
                 break;
             case Protocol.JOIN_TOKEN:
-                //get port
                 String port = commands[1];
-                System.out.println("new dstore joined on port " + port);
+                //client.setSoTimeout(controller.timeout);//TODO: catch exception and handle it according to spec
 
-                dStores.add(new DStoreObject(Integer.parseInt(port), client, clientInputStream, clientOutputStream));
+                DStoreObject dstore = new DStoreObject(Integer.parseInt(port), client, clientInputStream, client.getOutputStream());
+                startThreadOnDstore(client, clientInputStream, dstore);
+                dStores.add(dstore);
                 ControllerLogger.getInstance().dstoreJoined(client, Integer.parseInt(port));
 
                 //controller.rebalance();

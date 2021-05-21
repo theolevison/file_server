@@ -33,7 +33,7 @@ public class DStore {
             Socket controller = new Socket(InetAddress.getLocalHost() ,cport);
             OutputStream controllerOutputStream = controller.getOutputStream();
             PrintWriter controllerOut = new PrintWriter(controllerOutputStream);
-            //controller.getOutputStream().write(("JOIN "+port).getBytes(StandardCharsets.UTF_8));
+
             controllerOut.println(Protocol.JOIN_TOKEN + " " +port);
             controllerOut.flush();
             DstoreLogger.getInstance().messageSent(controller, Protocol.JOIN_TOKEN + " " +port);
@@ -255,7 +255,6 @@ public class DStore {
                                             }
                                             default:
                                                 //malformed command
-                                                //TODO: log error and continue
                                                 break;
                                         }
                                         System.out.println("waiting for more input");

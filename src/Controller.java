@@ -57,8 +57,9 @@ public class Controller {
                     //get port
                     String port = commands[1];
 
-                    controller.startThreadOnDstore(client, clientInputStream);
-                    controller.dStores.add(new DStoreObject(Integer.parseInt(port), client, clientInputStream, client.getOutputStream()));
+                    DStoreObject dstore = new DStoreObject(Integer.parseInt(port), client, clientInputStream, client.getOutputStream());
+                    controller.startThreadOnDstore(client, clientInputStream, dstore);
+                    controller.dStores.add(dstore);
                     ControllerLogger.getInstance().dstoreJoined(client, Integer.parseInt(port));
                 }
             }
@@ -99,7 +100,7 @@ public class Controller {
         }
     }
 
-    private void startThreadOnDstore(Socket client, InputStream dstoreInputStream){
+    private void startThreadOnDstore(Socket client, InputStream dstoreInputStream, DStoreObject dstore){
         //TODO: receive REMOVE_ACK and STORE_ACK, then update counts. Start a thread for each permanent connection to dstore
         new Thread(new Runnable(){
             public void run() {
@@ -126,6 +127,8 @@ public class Controller {
                             }
                         }
                     }
+                    System.err.println("dstore closed unexpectedly");
+                    dStores.remove(dstore);
                 } catch (Exception e) {
                     System.err.println(e);
                 }
@@ -172,7 +175,7 @@ public class Controller {
                             if(storeAcks.get(fileName)>=R){
                                 flag=true;
                             }
-                        } while (System.currentTimeMillis()-startTime<timeout-50);//TODO: decide if it needs a smaller timeout than client
+                        } while (System.currentTimeMillis()-startTime<timeout/2);
 
                         if (flag){
                             //change status and update client
@@ -275,6 +278,10 @@ public class Controller {
                                 PrintWriter dstoreOut = new PrintWriter(dstore.getOutputStream());
                                 dstoreOut.println(Protocol.REMOVE_TOKEN + " " + fileName);
                                 dstoreOut.flush();
+                                if (dstoreOut.checkError()){
+                                    System.err.println("dstore closed unexpectedly during remove");
+                                    dStores.remove(dstore);
+                                }
                                 ControllerLogger.getInstance().messageSent(dstore.getSocket(), Protocol.REMOVE_TOKEN + " " + fileName);
                             }
 
@@ -285,7 +292,7 @@ public class Controller {
                                 if(removeAcks.get(fileName)>=R){
                                     flag=true;
                                 }
-                            } while (System.currentTimeMillis()-startTime<timeout-50);//TODO: decide if it needs a smaller timeout than client
+                            } while (System.currentTimeMillis()-startTime<timeout/2);
 
                             if (flag) {
                                 index.get(fileName).setStatus(REMOVE_COMPLETE);
@@ -336,6 +343,11 @@ public class Controller {
                 break;
         }
     }
+
+//    if (dstoreOut.checkError()){
+//        System.err.println("dstore closed unexpectedly during remove");
+//        dStores.remove(dstore);
+//    }
 
     //TODO: wait for store and remove to be complete, and check only one rebalance is running at the same time
     private void rebalance() throws IOException {

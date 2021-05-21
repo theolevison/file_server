@@ -359,24 +359,26 @@ public class Controller {
     private void rebalance() throws IOException {
         System.out.println("rebalancing");
         HashMap<String, ArrayList<DStoreObject>> fileLocations = new HashMap<>();
-        byte[] buf = new byte[1000];
-        int buflen;
 
         //find where files are stored
         for (DStoreObject dstore : dStores) {
-            OutputStream dstoreOut = dstore.getSocket().getOutputStream();
-            dstoreOut.write(("LIST").getBytes(StandardCharsets.UTF_8));
 
-            //find the command
-            InputStream dstoreIn = dstore.getSocket().getInputStream();
-            buflen = dstoreIn.read(buf);
-            String firstBuffer = new String(buf, 0, buflen-1);
-            int firstSpace = firstBuffer.indexOf(" ");
-            String command = firstBuffer.substring(0, firstSpace);
-            System.out.println("command " + command);
+            OutputStream dstoreOutputStream = dstore.getOutputStream();
+            PrintWriter dstoreOut = new PrintWriter(dstoreOutputStream);
+            InputStream dstoreInputStream = dstore.getInputStream();
+            BufferedReader dstoreIn = new BufferedReader(new InputStreamReader(dstoreInputStream));
 
-            if (command.equals(Protocol.LIST_TOKEN)) {
-                String[] listOfFilesInDstore = firstBuffer.substring(firstSpace + 1, buflen-1).split(" ");
+            dstoreOut.println(Protocol.LIST_TOKEN);
+            dstoreOut.flush();
+            ControllerLogger.getInstance().messageSent(dstore.getSocket(), Protocol.LIST_TOKEN);
+
+            String input = dstoreIn.readLine();//TODO: could cause problems unless every other thread is not listening bcs they are disabled
+            ControllerLogger.getInstance().messageReceived(dstore.getSocket(), input);
+
+            String[] commands = input.split(" ");
+
+            if (commands[0].equals(Protocol.LIST_TOKEN)) {
+                String[] listOfFilesInDstore = Arrays.copyOfRange(commands, 1, commands.length);//TODO: decide if this will be out of bounds
                 Arrays.stream(listOfFilesInDstore).forEach(file -> {
                     if (fileLocations.containsKey(file)){
                         fileLocations.get(file).add(dstore);
@@ -427,7 +429,10 @@ public class Controller {
         }
 
         for (DStoreObject dstore : dStores) {
-            OutputStream dstoreOut = dstore.getSocket().getOutputStream();
+            OutputStream dstoreOutputStream = dstore.getOutputStream();
+            PrintWriter dstoreOut = new PrintWriter(dstoreOutputStream);
+            InputStream dstoreInputStream = dstore.getInputStream();
+            BufferedReader dstoreIn = new BufferedReader(new InputStreamReader(dstoreInputStream));
 
             //files to send
             StringBuilder outputMsg = new StringBuilder(Protocol.REBALANCE_TOKEN + " ");
@@ -442,19 +447,17 @@ public class Controller {
             outputMsg.append(filesToRemove.get(dstore).size()).append(" ");
             filesToRemove.get(dstore).forEach(file -> outputMsg.append(file).append(" "));
 
-            dstoreOut.write(outputMsg.toString().getBytes(StandardCharsets.UTF_8));
-            dstoreOut.close();
+            dstoreOut.println(outputMsg);
+            dstoreOut.flush();
+            ControllerLogger.getInstance().messageSent(dstore.getSocket(), outputMsg.toString());
 
             //TODO: test against timeout
             //find the command
-            InputStream dstoreIn = dstore.getSocket().getInputStream();
-            buflen = dstoreIn.read(buf);
-            String firstBuffer = new String(buf, 0, buflen-1);
-            int firstSpace = firstBuffer.indexOf(" ");
-            String command = firstBuffer.substring(0, firstSpace);
-            System.out.println("command " + command);
+            String input = dstoreIn.readLine();
+            ControllerLogger.getInstance().messageReceived(dstore.getSocket(), input);
+            String[] commands = input.split(" ");
 
-            if (!command.equals(Protocol.REMOVE_COMPLETE_TOKEN)) {
+            if (!commands[0].equals(Protocol.REMOVE_COMPLETE_TOKEN)) {
                 //TODO: log error
             }
         }

@@ -204,7 +204,6 @@ public class DStore {
                                                     DstoreLogger.getInstance().messageSent(controller, Protocol.STORE_ACK_TOKEN + " " + fileName);
                                                 } catch (IOException ioException) {
                                                     System.err.println(ioException);
-                                                    ioException.printStackTrace();
                                                 }
                                                 break;
                                             }
@@ -229,10 +228,8 @@ public class DStore {
                                                 break;
                                             }
                                             case Protocol.REBALANCE_STORE_TOKEN: {
-                                                //get file name
-                                                String fileName = commands[1];
 
-                                                //get file size
+                                                String fileName = commands[1];
                                                 int filesize = Integer.parseInt(commands[2]);
 
                                                 //here the client is actually a dstore
@@ -248,7 +245,6 @@ public class DStore {
 
                                                 } catch (IOException ioException) {
                                                     System.err.println(ioException);
-                                                    ioException.printStackTrace();
                                                 }
                                                 break;
                                             }

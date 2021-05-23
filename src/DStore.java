@@ -2,6 +2,7 @@ import java.io.*;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.net.SocketTimeoutException;
 import java.util.Arrays;
 
 public class DStore {
@@ -79,6 +80,7 @@ public class DStore {
                                     System.err.println(e);
                                 }
                             } else if (commands[0].equals(Protocol.REBALANCE_TOKEN)) {
+                                Boolean complete = true;
                                 //find dstores to send stuff to
                                 int numberToSend = Integer.parseInt(commands[1]);
                                 System.out.println("number of files to send " + numberToSend);
@@ -110,19 +112,26 @@ public class DStore {
                                                 dstoreOut.flush();
                                                 DstoreLogger.getInstance().messageSent(dstoreSocket, Protocol.REBALANCE_STORE_TOKEN+ " " + fileToSend + " " + file.length());
 
-                                                //find the command
-                                                input = dstoreIn.readLine();
-                                                DstoreLogger.getInstance().messageReceived(dstoreSocket, input);
-                                                String[] commands2 = input.split(" ");
+                                                dstoreSocket.setSoTimeout(timeout);
+                                                try {
+                                                    //find the command
+                                                    input = dstoreIn.readLine();
+                                                    DstoreLogger.getInstance().messageReceived(dstoreSocket, input);
+                                                    String[] commands2 = input.split(" ");
 
-                                                if (commands2[0].equals("ACK")) {
-                                                    FileInputStream inf = new FileInputStream(file);
+                                                    if (commands2[0].equals("ACK")) {
+                                                        FileInputStream inf = new FileInputStream(file);
 
-                                                    dstoreOutputStream.write(inf.readAllBytes());
-                                                    dstoreOutputStream.flush();
-                                                    inf.close();
-                                                } else {
-                                                    System.err.println("no ack when rebalance storing");
+                                                        dstoreOutputStream.write(inf.readAllBytes());
+                                                        dstoreOutputStream.flush();
+                                                        inf.close();
+                                                    } else {
+                                                        System.err.println("no ack when rebalance storing");
+                                                        complete = false;
+                                                    }
+                                                } catch (SocketTimeoutException e){
+                                                    System.err.println("dstore didnt ack during rebalance");
+                                                    complete = false;
                                                 }
                                             }
                                             dstoreSocket.close();
@@ -143,11 +152,14 @@ public class DStore {
                                     File file2 = new File(file_folder + "/" + file);
                                     if (!file2.delete()) {
                                         System.err.println("not able to delete " + file + " during rebalance");
+                                        complete = false;
                                     }
                                 }
 
-                                controllerOut.println(Protocol.REBALANCE_COMPLETE_TOKEN);
-                                DstoreLogger.getInstance().messageSent(controller, Protocol.REBALANCE_COMPLETE_TOKEN);
+                                if (complete) {
+                                    controllerOut.println(Protocol.REBALANCE_COMPLETE_TOKEN);
+                                    DstoreLogger.getInstance().messageSent(controller, Protocol.REBALANCE_COMPLETE_TOKEN);
+                                }
                             }
                         }
                     } catch (IOException e){

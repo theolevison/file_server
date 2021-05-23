@@ -29,8 +29,6 @@ public class Controller {
     private final AtomicBoolean rebalanceAllowed = new AtomicBoolean(true);
     private final AtomicBoolean rebalancing = new AtomicBoolean( false);
 
-    //TODO: monitor when dstores timeout
-
     public static void main(String[] args) throws IOException {
 
         Controller controller = new Controller();
@@ -47,7 +45,7 @@ public class Controller {
                 System.out.println("starting rebalance timer");
                 while (true) {
                     try {
-                        Thread.sleep(controller.rebalance_period* 1000L);
+                        Thread.sleep(controller.rebalance_period);
                         controller.rebalance();
                     } catch (InterruptedException | IOException e) {
                         e.printStackTrace();
@@ -122,7 +120,6 @@ public class Controller {
     }
 
     private void startThreadOnDstore(Socket client, InputStream dstoreInputStream, DStoreObject dstore){
-        //TODO: receive REMOVE_ACK and STORE_ACK, then update counts. Start a thread for each permanent connection to dstore
         new Thread(new Runnable(){
             public void run() {
 
@@ -336,7 +333,7 @@ public class Controller {
                 rebalanceAllowed.set(true);
                 break;
             }
-            case Protocol.LIST_TOKEN: //TODO: fix error where list waits on index to complete stores, but timesout and thus causes null pointer exception in client
+            case Protocol.LIST_TOKEN:
                 if (dStores.size() < R) {
                     clientOut.println(Protocol.ERROR_NOT_ENOUGH_DSTORES_TOKEN);
                     clientOut.flush();
@@ -369,17 +366,10 @@ public class Controller {
                 break;
             default:
                 //malformed command
-                //TODO: log error and continue
                 break;
         }
     }
 
-//    if (dstoreOut.checkError()){
-//        System.err.println("dstore closed unexpectedly during remove");
-//        dStores.remove(dstore);
-//    }
-
-    //TODO: wait for store and remove to be complete, and check only one rebalance is running at the same time
     private void rebalance() throws IOException {
         if (rebalanceAllowed.get()) {
             if (rebalancing.compareAndSet(false, true)) { //check that no other rebalance operations are happening
@@ -398,20 +388,26 @@ public class Controller {
                     dstoreOut.flush();
                     ControllerLogger.getInstance().messageSent(dstore.getSocket(), Protocol.LIST_TOKEN);
 
-                    String input = dstoreIn.readLine();//TODO: could cause problems unless every other thread is not listening bcs they are disabled
-                    ControllerLogger.getInstance().messageReceived(dstore.getSocket(), input);
+                    //test against timeout
+                    dstore.getSocket().setSoTimeout(timeout);
+                    try {
+                        String input = dstoreIn.readLine();//TODO: could cause problems unless every other thread is not listening bcs they are disabled
+                        ControllerLogger.getInstance().messageReceived(dstore.getSocket(), input);
 
-                    String[] commands = input.split(" ");
+                        String[] commands = input.split(" ");
 
-                    if (commands[0].equals(Protocol.LIST_TOKEN)) {
-                        String[] listOfFilesInDstore = Arrays.copyOfRange(commands, 1, commands.length);//TODO: decide if this will be out of bounds
-                        Arrays.stream(listOfFilesInDstore).forEach(file -> {
-                            if (fileLocations.containsKey(file)) {
-                                fileLocations.get(file).add(dstore);
-                            } else {
-                                fileLocations.put(file, new ArrayList<>(List.of(dstore)));
-                            }
-                        });
+                        if (commands[0].equals(Protocol.LIST_TOKEN)) {
+                            String[] listOfFilesInDstore = Arrays.copyOfRange(commands, 1, commands.length);//TODO: decide if this will be out of bounds
+                            Arrays.stream(listOfFilesInDstore).forEach(file -> {
+                                if (fileLocations.containsKey(file)) {
+                                    fileLocations.get(file).add(dstore);
+                                } else {
+                                    fileLocations.put(file, new ArrayList<>(List.of(dstore)));
+                                }
+                            });
+                        }
+                    } catch (SocketTimeoutException e){
+                        System.err.println("dstore didnt list during rebalance");
                     }
                 }
 
@@ -477,14 +473,19 @@ public class Controller {
                     dstoreOut.flush();
                     ControllerLogger.getInstance().messageSent(dstore.getSocket(), outputMsg.toString());
 
-                    //TODO: test against timeout
-                    //find the command
-                    String input = dstoreIn.readLine();
-                    ControllerLogger.getInstance().messageReceived(dstore.getSocket(), input);
-                    String[] commands = input.split(" ");
+                    //test against timeout
+                    dstore.getSocket().setSoTimeout(timeout);
+                    try {
+                        //find the command
+                        String input = dstoreIn.readLine();
+                        ControllerLogger.getInstance().messageReceived(dstore.getSocket(), input);
+                        String[] commands = input.split(" ");
 
-                    if (!commands[0].equals(Protocol.REMOVE_COMPLETE_TOKEN)) {
-                        //TODO: log error
+                        if (!commands[0].equals(Protocol.REBALANCE_COMPLETE_TOKEN)) {
+                            System.err.println("dstore didnt rebalance complete during rebalance");
+                        }
+                    } catch (SocketTimeoutException e){
+                        System.err.println("dstore didnt rebalance complete during rebalance");
                     }
                 }
                 rebalancing.set(false);

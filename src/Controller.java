@@ -1,4 +1,5 @@
 import java.io.*;
+import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
@@ -72,7 +73,6 @@ public class Controller {
                 if (commands[0].equals(Protocol.JOIN_TOKEN)) {
                     //get port
                     String port = commands[1];
-
                     DStoreObject dstore = new DStoreObject(Integer.parseInt(port), client, clientInputStream, client.getOutputStream());
                     controller.startThreadOnDstore(client, clientInputStream, dstore);
                     controller.dStores.add(dstore);
@@ -125,9 +125,7 @@ public class Controller {
 
                 try {
                     BufferedReader dstoreIn = new BufferedReader(new InputStreamReader(dstoreInputStream));
-
                     String input;
-
 
                     while ((input = dstoreIn.readLine()) != null) {
                         String[] commands = input.split(" ");
@@ -145,11 +143,11 @@ public class Controller {
                             }
                         }
                     }
-                    System.err.println("dstore closed unexpectedly");
-                    dStores.remove(dstore);
                 } catch (Exception e) {
                     System.err.println(e);
                 }
+                System.err.println("dstore closed unexpectedly");
+                dStores.remove(dstore);
             }
         }).start();
     }
@@ -321,7 +319,7 @@ public class Controller {
                                 clientOut.flush();
                                 ControllerLogger.getInstance().messageSent(client, Protocol.REMOVE_COMPLETE_TOKEN);
                             } else {
-                                //TODO: log error not all dstores ack
+                                System.err.println("not all dstores ackd during remove");
                             }
                         }
                     }
@@ -355,7 +353,6 @@ public class Controller {
                 break;
             case Protocol.JOIN_TOKEN:
                 String port = commands[1];
-                //client.setSoTimeout(controller.timeout);//TODO: catch exception and handle it according to spec
 
                 DStoreObject dstore = new DStoreObject(Integer.parseInt(port), client, clientInputStream, client.getOutputStream());
                 startThreadOnDstore(client, clientInputStream, dstore);
@@ -375,120 +372,146 @@ public class Controller {
             if (rebalancing.compareAndSet(false, true)) { //check that no other rebalance operations are happening
                 System.out.println("rebalancing");
                 HashMap<String, ArrayList<DStoreObject>> fileLocations = new HashMap<>();
+                try {
+                    //find where files are stored
+                    for (DStoreObject dstore : dStores) {
+                        try {
+                            Socket socket = new Socket(InetAddress.getLocalHost(), dstore.getPort());
+                            socket.setSoTimeout(timeout);
+                            OutputStream dstoreOutputStream = socket.getOutputStream();
+                            PrintWriter dstoreOut = new PrintWriter(dstoreOutputStream);
+                            InputStream dstoreInputStream = socket.getInputStream();
+                            BufferedReader dstoreIn = new BufferedReader(new InputStreamReader(dstoreInputStream));
 
-                //find where files are stored
-                for (DStoreObject dstore : dStores) {
+                            dstoreOut.println(Protocol.LIST_TOKEN);
+                            dstoreOut.flush();
+                            ControllerLogger.getInstance().messageSent(dstore.getSocket(), Protocol.LIST_TOKEN);
 
-                    OutputStream dstoreOutputStream = dstore.getOutputStream();
-                    PrintWriter dstoreOut = new PrintWriter(dstoreOutputStream);
-                    InputStream dstoreInputStream = dstore.getInputStream();
-                    BufferedReader dstoreIn = new BufferedReader(new InputStreamReader(dstoreInputStream));
+                            if (dstoreOut.checkError()) {
+                                System.err.println("dstore closed unexpectedly during rebalance");
+                                dStores.remove(dstore);
+                            } else {
 
-                    dstoreOut.println(Protocol.LIST_TOKEN);
-                    dstoreOut.flush();
-                    ControllerLogger.getInstance().messageSent(dstore.getSocket(), Protocol.LIST_TOKEN);
+                                String input = dstoreIn.readLine();
+                                ControllerLogger.getInstance().messageReceived(dstore.getSocket(), input);
 
-                    //test against timeout
-                    dstore.getSocket().setSoTimeout(timeout);
-                    try {
-                        String input = dstoreIn.readLine();//TODO: could cause problems unless every other thread is not listening bcs they are disabled
-                        ControllerLogger.getInstance().messageReceived(dstore.getSocket(), input);
+                                String[] commands = input.split(" ");
 
-                        String[] commands = input.split(" ");
+                                if (commands[0].equals(Protocol.LIST_TOKEN)) {
+                                    String[] listOfFilesInDstore = Arrays.copyOfRange(commands, 1, commands.length);//TODO: decide if this will be out of bounds
+                                    System.out.println(Arrays.toString(listOfFilesInDstore));
+                                    Arrays.stream(listOfFilesInDstore).forEach(file -> {
+                                        if (fileLocations.containsKey(file)) {
+                                            fileLocations.get(file).add(dstore);
+                                        } else {
+                                            fileLocations.put(file, new ArrayList<>(List.of(dstore)));
+                                        }
+                                    });
+                                }
+                            }
+                            socket.close();
+                        } catch (SocketTimeoutException e){
+                            System.err.println("dstore timed out during rebalance list");
+                        }
+                    }
 
-                        if (commands[0].equals(Protocol.LIST_TOKEN)) {
-                            String[] listOfFilesInDstore = Arrays.copyOfRange(commands, 1, commands.length);//TODO: decide if this will be out of bounds
-                            Arrays.stream(listOfFilesInDstore).forEach(file -> {
-                                if (fileLocations.containsKey(file)) {
-                                    fileLocations.get(file).add(dstore);
-                                } else {
-                                    fileLocations.put(file, new ArrayList<>(List.of(dstore)));
+                    //share files out between dstores
+                    HashMap<String, ArrayList<DStoreObject>> newFileLocations = new HashMap<>();
+                    int count = 0;
+                    for (String file : fileLocations.keySet()) {
+                        newFileLocations.put(file, new ArrayList<>());
+                        for (int i = 0; i < R; i++) {
+                            if (count >= dStores.size()) {
+                                count = 0;
+                            }
+                            newFileLocations.get(file).add(dStores.get(count));
+                            count++;
+                        }
+                    }
+
+                    //generate lists to remove and send
+                    HashMap<String, ArrayList<DStoreObject>> filesToSend = new HashMap<>();
+                    HashMap<DStoreObject, ArrayList<String>> filesToRemove = new HashMap<>();
+                    for (String file : fileLocations.keySet()) {
+                        ArrayList<DStoreObject> copyOfFileLocationsForFile = fileLocations.get(file);
+                        ArrayList<DStoreObject> copyOfNewFileLocationsForFile = newFileLocations.get(file);
+
+                        //dont remove files you are meant to have
+                        copyOfFileLocationsForFile.removeAll(newFileLocations.get(file));
+                        copyOfFileLocationsForFile.forEach(dstore -> {
+                            if (filesToRemove.containsKey(dstore)) {
+                                filesToRemove.get(dstore).add(file);
+                            } else {
+                                filesToRemove.put(dstore, new ArrayList<>(List.of(file)));
+                            }
+                        });
+                        System.out.println(filesToRemove);
+
+                        //dont send files to dstores that already have them
+                        copyOfNewFileLocationsForFile.removeAll(fileLocations.get(file));
+                        copyOfNewFileLocationsForFile.forEach(dstore -> {
+                            if (filesToSend.containsKey(file)) {
+                                filesToSend.get(file).add(dstore);
+                            } else {
+                                filesToSend.put(file, new ArrayList<>(List.of(dstore)));
+                            }
+                        });
+                        System.out.println(filesToSend);
+                    }
+
+                    for (DStoreObject dstore : dStores) {
+                        try {
+                            Socket socket = new Socket(InetAddress.getLocalHost(), dstore.getPort());
+                            socket.setSoTimeout(timeout);
+                            OutputStream dstoreOutputStream = socket.getOutputStream();
+                            PrintWriter dstoreOut = new PrintWriter(dstoreOutputStream);
+                            InputStream dstoreInputStream = socket.getInputStream();
+                            BufferedReader dstoreIn = new BufferedReader(new InputStreamReader(dstoreInputStream));
+
+                            //files to send
+                            StringBuilder outputMsg = new StringBuilder(Protocol.REBALANCE_TOKEN + " ");
+
+                            //count how many times dstore appears in filesToSend
+                            outputMsg.append(filesToSend.size()).append(" ");
+                            filesToSend.forEach((k, v) -> {
+                                if (fileLocations.get(k).contains(dstore)) {
+                                    outputMsg.append(k).append(" ").append(v.size()).append(" ");
+                                    filesToSend.get(k).forEach(dstore2 -> outputMsg.append(dstore2.getPort()).append(" "));
                                 }
                             });
+
+                            //files to remove
+                            if (!filesToRemove.containsKey(dstore)) {
+                                outputMsg.append(0);
+                            } else {
+                                outputMsg.append(filesToRemove.get(dstore).size()).append(" ");
+                                filesToRemove.get(dstore).forEach(file -> outputMsg.append(file).append(" "));
+                            }
+
+
+
+                            dstoreOut.println(outputMsg);
+                            dstoreOut.flush();
+                            ControllerLogger.getInstance().messageSent(dstore.getSocket(), outputMsg.toString());
+
+                            //find the command
+                            String input = dstoreIn.readLine();
+                            ControllerLogger.getInstance().messageReceived(dstore.getSocket(), input);
+                            String[] commands = input.split(" ");
+
+                            if (!commands[0].equals(Protocol.REBALANCE_COMPLETE_TOKEN)) {
+                                System.err.println("dstore didnt rebalance complete during rebalance");
+                            }
+                            socket.close();
+                        } catch (SocketTimeoutException e){
+                            System.err.println("dstore timed out during rebalance sending");
                         }
-                    } catch (SocketTimeoutException e){
-                        System.err.println("dstore didnt list during rebalance");
                     }
-                }
-
-                //share files out between dstores
-                HashMap<String, ArrayList<DStoreObject>> newFileLocations = new HashMap<>();
-                int count = 0;
-                for (String file : fileLocations.keySet()) {
-                    newFileLocations.put(file, new ArrayList<>());
-                    for (int i = 0; i < R; i++) {
-                        if (count >= dStores.size()) {
-                            count = 0;
-                        }
-                        newFileLocations.get(file).add(dStores.get(count));
-                        count++;
-                    }
-                }
-
-                //generate lists to remove and send
-                HashMap<String, ArrayList<DStoreObject>> filesToSend = new HashMap<>();
-                HashMap<DStoreObject, ArrayList<String>> filesToRemove = new HashMap<>();
-                for (String file : fileLocations.keySet()) {
-                    ArrayList<DStoreObject> copyOfFileLocations = fileLocations.get(file);
-                    ArrayList<DStoreObject> copyOfNewFileLocations = newFileLocations.get(file);
-                    copyOfFileLocations.removeAll(newFileLocations.get(file));
-                    copyOfFileLocations.forEach(dstore -> {
-                        if (filesToRemove.containsKey(dstore)) {
-                            filesToRemove.get(dstore).add(file);
-                        } else {
-                            filesToRemove.put(dstore, new ArrayList<>(List.of(file)));
-                        }
-                    });
-
-                    copyOfNewFileLocations.removeAll(fileLocations.get(file));
-                    copyOfNewFileLocations.forEach(dstore -> {
-                        if (filesToSend.containsKey(file)) {
-                            filesToSend.get(file).add(dstore);
-                        } else {
-                            filesToSend.put(file, new ArrayList<>(List.of(dstore)));
-                        }
-                    });
-                }
-
-                for (DStoreObject dstore : dStores) {
-                    OutputStream dstoreOutputStream = dstore.getOutputStream();
-                    PrintWriter dstoreOut = new PrintWriter(dstoreOutputStream);
-                    InputStream dstoreInputStream = dstore.getInputStream();
-                    BufferedReader dstoreIn = new BufferedReader(new InputStreamReader(dstoreInputStream));
-
-                    //files to send
-                    StringBuilder outputMsg = new StringBuilder(Protocol.REBALANCE_TOKEN + " ");
-                    filesToSend.forEach((k, v) -> {
-                        if (fileLocations.get(k).contains(dstore)) {
-                            outputMsg.append(k).append(v.size()).append(" ");
-                            filesToSend.get(k).forEach(dstore2 -> outputMsg.append(dstore2.getPort()).append(" "));
-                        }
-                    });
-
-                    //files to remove
-                    outputMsg.append(filesToRemove.get(dstore).size()).append(" ");
-                    filesToRemove.get(dstore).forEach(file -> outputMsg.append(file).append(" "));
-
-                    dstoreOut.println(outputMsg);
-                    dstoreOut.flush();
-                    ControllerLogger.getInstance().messageSent(dstore.getSocket(), outputMsg.toString());
-
-                    //test against timeout
-                    dstore.getSocket().setSoTimeout(timeout);
-                    try {
-                        //find the command
-                        String input = dstoreIn.readLine();
-                        ControllerLogger.getInstance().messageReceived(dstore.getSocket(), input);
-                        String[] commands = input.split(" ");
-
-                        if (!commands[0].equals(Protocol.REBALANCE_COMPLETE_TOKEN)) {
-                            System.err.println("dstore didnt rebalance complete during rebalance");
-                        }
-                    } catch (SocketTimeoutException e){
-                        System.err.println("dstore didnt rebalance complete during rebalance");
-                    }
+                } catch (SocketTimeoutException e){
+                    System.err.println(e);
                 }
                 rebalancing.set(false);
+                System.out.println("rebalancing complete");
             }
         }
     }

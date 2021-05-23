@@ -166,6 +166,7 @@ public class DStore {
                                                 clientOut.println(outputMsg);
                                                 clientOut.flush();
                                                 DstoreLogger.getInstance().messageSent(client, outputMsg.toString());
+                                                break;
                                             }
                                             case Protocol.REBALANCE_STORE_TOKEN: {
 
@@ -228,7 +229,7 @@ public class DStore {
                                                                     DstoreLogger.getInstance().messageReceived(dstoreSocket, input);
                                                                     String[] commands2 = input.split(" ");
 
-                                                                    if (commands2[0].equals("ACK")) {
+                                                                    if (commands2[0].equals(Protocol.ACK_TOKEN)) {
                                                                         FileInputStream inf = new FileInputStream(file);
 
                                                                         dstoreOutputStream.write(inf.readAllBytes());
@@ -267,8 +268,9 @@ public class DStore {
                                                 }
 
                                                 if (complete) {
-                                                    controllerOut.println(Protocol.REBALANCE_COMPLETE_TOKEN);
-                                                    DstoreLogger.getInstance().messageSent(controller, Protocol.REBALANCE_COMPLETE_TOKEN);
+                                                    clientOut.println(Protocol.REBALANCE_COMPLETE_TOKEN);
+                                                    clientOut.flush();
+                                                    DstoreLogger.getInstance().messageSent(client, Protocol.REBALANCE_COMPLETE_TOKEN);
                                                 }
                                                 break;
                                             }

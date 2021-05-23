@@ -3,11 +3,11 @@ import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
-import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 
 public class Controller {
@@ -372,6 +372,7 @@ public class Controller {
             if (rebalancing.compareAndSet(false, true)) { //check that no other rebalance operations are happening
                 System.out.println("rebalancing");
                 HashMap<String, ArrayList<DStoreObject>> fileLocations = new HashMap<>();
+                HashMap<DStoreObject, ArrayList<String>> fileLocations2 = new HashMap<>();
                 try {
                     //find where files are stored
                     for (DStoreObject dstore : dStores) {
@@ -399,7 +400,7 @@ public class Controller {
 
                                 if (commands[0].equals(Protocol.LIST_TOKEN)) {
                                     String[] listOfFilesInDstore = Arrays.copyOfRange(commands, 1, commands.length);//TODO: decide if this will be out of bounds
-                                    System.out.println(Arrays.toString(listOfFilesInDstore));
+                                    fileLocations2.put(dstore, new ArrayList<>(List.of(listOfFilesInDstore)));
                                     Arrays.stream(listOfFilesInDstore).forEach(file -> {
                                         if (fileLocations.containsKey(file)) {
                                             fileLocations.get(file).add(dstore);
@@ -408,6 +409,7 @@ public class Controller {
                                         }
                                     });
                                 }
+                                System.out.println(fileLocations);
                             }
                             socket.close();
                         } catch (SocketTimeoutException e){
@@ -433,8 +435,8 @@ public class Controller {
                     HashMap<String, ArrayList<DStoreObject>> filesToSend = new HashMap<>();
                     HashMap<DStoreObject, ArrayList<String>> filesToRemove = new HashMap<>();
                     for (String file : fileLocations.keySet()) {
-                        ArrayList<DStoreObject> copyOfFileLocationsForFile = fileLocations.get(file);
-                        ArrayList<DStoreObject> copyOfNewFileLocationsForFile = newFileLocations.get(file);
+                        ArrayList<DStoreObject> copyOfFileLocationsForFile = (ArrayList<DStoreObject>) fileLocations.get(file).clone();
+                        ArrayList<DStoreObject> copyOfNewFileLocationsForFile = (ArrayList<DStoreObject>) newFileLocations.get(file).clone();
 
                         //dont remove files you are meant to have
                         copyOfFileLocationsForFile.removeAll(newFileLocations.get(file));
@@ -445,7 +447,7 @@ public class Controller {
                                 filesToRemove.put(dstore, new ArrayList<>(List.of(file)));
                             }
                         });
-                        System.out.println(filesToRemove);
+
 
                         //dont send files to dstores that already have them
                         copyOfNewFileLocationsForFile.removeAll(fileLocations.get(file));
@@ -456,7 +458,7 @@ public class Controller {
                                 filesToSend.put(file, new ArrayList<>(List.of(dstore)));
                             }
                         });
-                        System.out.println(filesToSend);
+
                     }
 
                     for (DStoreObject dstore : dStores) {
@@ -470,15 +472,26 @@ public class Controller {
 
                             //files to send
                             StringBuilder outputMsg = new StringBuilder(Protocol.REBALANCE_TOKEN + " ");
+                            StringBuilder sendy = new StringBuilder();
 
                             //count how many times dstore appears in filesToSend
-                            outputMsg.append(filesToSend.size()).append(" ");
+//                            Set<String> keys = ((HashMap<String, ArrayList<DStoreObject>>) fileLocations.clone()).keySet();
+//                            fileLocations2.get(dstore).forEach(keys::remove);
+//                            outputMsg.append(keys.size()).append(" ");
+                            AtomicInteger county = new AtomicInteger();
+
+                            System.err.println(fileLocations);
+                            System.err.println(filesToSend);
+
                             filesToSend.forEach((k, v) -> {
                                 if (fileLocations.get(k).contains(dstore)) {
-                                    outputMsg.append(k).append(" ").append(v.size()).append(" ");
-                                    filesToSend.get(k).forEach(dstore2 -> outputMsg.append(dstore2.getPort()).append(" "));
+                                    sendy.append(k).append(" ").append(v.size()).append(" ");
+                                    filesToSend.get(k).forEach(dstore2 -> sendy.append(dstore2.getPort()).append(" "));
+                                    county.getAndIncrement();
                                 }
                             });
+
+                            outputMsg.append(county).append(" ").append(sendy);
 
                             //files to remove
                             if (!filesToRemove.containsKey(dstore)) {
@@ -488,15 +501,13 @@ public class Controller {
                                 filesToRemove.get(dstore).forEach(file -> outputMsg.append(file).append(" "));
                             }
 
-
-
                             dstoreOut.println(outputMsg);
                             dstoreOut.flush();
-                            ControllerLogger.getInstance().messageSent(dstore.getSocket(), outputMsg.toString());
+                            ControllerLogger.getInstance().messageSent(socket, outputMsg.toString());
 
                             //find the command
                             String input = dstoreIn.readLine();
-                            ControllerLogger.getInstance().messageReceived(dstore.getSocket(), input);
+                            ControllerLogger.getInstance().messageReceived(socket, input);
                             String[] commands = input.split(" ");
 
                             if (!commands[0].equals(Protocol.REBALANCE_COMPLETE_TOKEN)) {
@@ -508,7 +519,7 @@ public class Controller {
                         }
                     }
                 } catch (SocketTimeoutException e){
-                    System.err.println(e);
+                    System.out.println(e);
                 }
                 rebalancing.set(false);
                 System.out.println("rebalancing complete");

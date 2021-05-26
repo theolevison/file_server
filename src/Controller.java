@@ -480,9 +480,6 @@ public class Controller {
 //                            outputMsg.append(keys.size()).append(" ");
                             AtomicInteger county = new AtomicInteger();
 
-                            System.err.println(fileLocations);
-                            System.err.println(filesToSend);
-
                             filesToSend.forEach((k, v) -> {
                                 if (fileLocations.get(k).contains(dstore)) {
                                     sendy.append(k).append(" ").append(v.size()).append(" ");
